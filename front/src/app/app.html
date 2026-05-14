@@ -1,0 +1,184 @@
+<div
+  class="layout"
+  [class.guest-layout]="!auth.isLoggedIn()"
+  [class.shell-layout]="showMenu()"
+  [class.sidebar-open]="showMenu() && mobileSidebarOpen()">
+  @if (showMenu()) {
+    <aside class="sidebar" [class.sidebar-open]="mobileSidebarOpen()">
+      <div class="sidebar-mobile-top">
+        <button type="button" class="sidebar-close" (click)="closeSidebar()" aria-label="Close menu">
+          <i class="pi pi-times" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="sidebar-brand">
+        <div class="brand-mark">
+          <img src="/logo.jpeg" alt="GOUDAPREP logo" class="brand-logo" />
+        </div>
+        <div class="brand-copy">
+          <span class="brand-kicker">Learning Platform</span>
+          <h2>GOUDAPREP</h2>
+          <p>Smart prep for every test</p>
+        </div>
+      </div>
+
+      <nav class="sidebar-menu">
+        @if (auth.role() === 'Admin' || auth.role() === 'Host') {
+         
+          <a routerLink="/questions" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-book nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Question Bank</span>
+              <small>Craft and refine your library</small>
+            </span>
+          </a>
+           <a routerLink="/quizzes" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-objects-column nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Tests</span>
+              <small>Build reusable test banks</small>
+            </span>
+          </a>
+          <a routerLink="/students/groups" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-users nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Student Groups</span>
+              <small>Organize access by group</small>
+            </span>
+          </a>
+          <a routerLink="/game-sessions" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-megaphone nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Sessions</span>
+              <small>Run live quiz moments</small>
+            </span>
+          </a>
+          <a routerLink="/results" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-chart-line nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Results</span>
+              <small>Read outcomes and trends</small>
+            </span>
+          </a>
+          @if (auth.role() === 'Admin') {
+            <a routerLink="/permissions" routerLinkActive="active" (click)="closeSidebar()">
+              <i class="pi pi-shield nav-icon" aria-hidden="true"></i>
+              <span class="nav-copy">
+                <span>Users Management</span>
+                <small>Manage users and access</small>
+              </span>
+            </a>
+          }
+        }
+        @if (auth.role() === 'Player') {
+          <a routerLink="/player/history" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-history nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>My History</span>
+              <small>Track sessions and attempts</small>
+            </span>
+          </a>
+          <a routerLink="/player/live-sessions" routerLinkActive="active" (click)="closeSidebar()">
+            <i class="pi pi-list nav-icon" aria-hidden="true"></i>
+            <span class="nav-copy">
+              <span>Live sessions</span>
+              <small>Browse rooms you can join</small>
+            </span>
+          </a>
+        }
+        <a routerLink="/test-mode" routerLinkActive="active" (click)="closeSidebar()">
+          <i class="pi pi-pencil nav-icon" aria-hidden="true"></i>
+          <span class="nav-copy">
+            <span>Test Mode</span>
+            <small>Practice with instant feedback</small>
+          </span>
+        </a>
+        <a routerLink="/player/join" routerLinkActive="active" (click)="closeSidebar()">
+          <i class="pi pi-send nav-icon" aria-hidden="true"></i>
+          <span class="nav-copy">
+            <span>Join Session</span>
+            <small>Enter a live room quickly</small>
+          </span>
+        </a>
+      </nav>
+
+      <div class="sidebar-header">
+        <div class="sidebar-user">
+          <div class="sidebar-user-info">
+            <span class="user-name-small">{{ userName() }}</span>
+            <span class="user-role-small">{{ userRole() }}</span>
+          </div>
+        </div>
+        <button type="button" class="sidebar-theme-toggle" (click)="toggleTheme()" [attr.aria-label]="theme.isDark() ? 'Switch to light mode' : 'Switch to dark mode'">
+          <i class="pi" [class.pi-moon]="!theme.isDark()" [class.pi-sun]="theme.isDark()"></i>
+        </button>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="logout-btn" (click)="logout()">
+          <i class="pi pi-sign-out" aria-hidden="true"></i>
+          <span>Logout</span>
+        </button>
+      </div>
+    </aside>
+
+    @if (mobileSidebarOpen()) {
+      <div class="sidebar-backdrop open" 
+           (click)="closeSidebar()" 
+           (touchstart)="closeSidebar()"></div>
+    } @else {
+      <div class="sidebar-backdrop" 
+           (click)="closeSidebar()" 
+           (touchstart)="closeSidebar()"></div>
+    }
+
+    @if (showMenu() && !mobileSidebarOpen()) {
+      <button
+        type="button"
+        class="secondary menu-toggle menu-toggle-floating"
+        (click)="toggleSidebar()"
+        [attr.aria-label]="menuButtonLabel()"
+        [attr.aria-expanded]="mobileSidebarOpen()">
+        <span class="menu-toggle-icon" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+        <span class="menu-toggle-text">{{ menuButtonText() }}</span>
+      </button>
+    }
+  }
+
+  <main class="content" [class.content-guest]="!auth.isLoggedIn()">
+    @if (!auth.isLoggedIn()) {
+      <button type="button" class="secondary guest-theme-toggle" (click)="toggleTheme()">{{ currentThemeLabel() }}</button>
+    }
+
+    @if (showMenu()) {
+    }
+
+    <div class="content-frame" [class.content-frame-guest]="!auth.isLoggedIn()">
+      <router-outlet></router-outlet>
+    </div>
+
+    <footer class="site-footer" [class.site-footer-guest]="!auth.isLoggedIn()">
+      <p>
+        &copy; 2026 Goudaprep. All rights reserved. Designed and developed by
+        <a href="https://nvuem.com" target="_blank" rel="noopener noreferrer">Nvuem</a>.
+      </p>
+    </footer>
+  </main>
+</div>
+
+@if (loading.isLoading()) {
+  <div class="global-loading-overlay" aria-live="polite" aria-busy="true" role="status">
+    <div class="global-loading-card">
+      <div class="global-loading-spinner" aria-hidden="true"></div>
+      <strong>Loading</strong>
+      <p>Please wait while we prepare your data.</p>
+    </div>
+  </div>
+}
+
+<app-confirm-dialog></app-confirm-dialog>
+<app-toast></app-toast>
