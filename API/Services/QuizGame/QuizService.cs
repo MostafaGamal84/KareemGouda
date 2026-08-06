@@ -832,6 +832,7 @@ public class QuizService : IQuizService
     private static int NormalizeAnswerSeconds(int? rawValue)
     {
         var value = rawValue ?? 30;
+        if (value == 0) return 0;
         if (value < 5) return 5;
         if (value > 300) return 300;
         return value;

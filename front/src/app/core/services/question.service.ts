@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { PagedResult, Question } from '../models';
 import { map } from 'rxjs';
@@ -18,13 +18,16 @@ export class QuestionService {
     difficulty?: string | null;
     selectionMode?: number | null;
     categoryId?: number | null;
-  }) {
+  }, options?: { skipLoading?: boolean }) {
     let query = new HttpParams();
     Object.entries(params).forEach(([k, v]) => {
       if (v !== null && v !== undefined && v !== '') query = query.set(k, v as string);
     });
 
-    return this.http.get<any>(this.base, { params: query }).pipe(
+    return this.http.get<any>(this.base, {
+      params: query,
+      headers: this.buildHeaders(options?.skipLoading)
+    }).pipe(
       map((res) => {
         const rootArray = this.toArray(res);
         const rawItems = rootArray.length
@@ -70,6 +73,10 @@ export class QuestionService {
 
   bulkRemoveCategory(ids: number[], categoryName?: string | null) {
     return this.http.post<any>(`${this.base}/bulk-remove-category`, { ids, categoryName: categoryName ?? '' });
+  }
+
+  bulkUpdateSettings(ids: number[], settings: { points?: number; answerSeconds?: number }) {
+    return this.http.post<any>(`${this.base}/bulk-update-settings`, { ids, ...settings });
   }
 
   duplicate(id: number) {
@@ -146,12 +153,19 @@ export class QuestionService {
     return this.http.post<any>(`${this.base}/${questionId}/choices/${choiceId}/image`, formData);
   }
 
-  getRandomByCategory(request: { categorySelections: { categoryId: number; count: number }[] }) {
-    return this.http.post<any>(`${this.base}/random-by-category`, request);
+  getRandomByCategory(
+    request: { categorySelections: { categoryId: number; count: number }[] },
+    options?: { skipLoading?: boolean }
+  ) {
+    return this.http.post<any>(`${this.base}/random-by-category`, request, {
+      headers: this.buildHeaders(options?.skipLoading)
+    });
   }
 
-  getCategoriesWithCounts() {
-    return this.http.get<any>(`${this.base}/categories-with-counts`);
+  getCategoriesWithCounts(options?: { skipLoading?: boolean }) {
+    return this.http.get<any>(`${this.base}/categories-with-counts`, {
+      headers: this.buildHeaders(options?.skipLoading)
+    });
   }
 
   importExcel(file: File) {
@@ -188,5 +202,9 @@ export class QuestionService {
 
     const apiRoot = environment.apiBaseUrl.replace(/\/api\/?$/i, '');
     return raw.startsWith('/') ? `${apiRoot}${raw}` : `${apiRoot}/${raw}`;
+  }
+
+  private buildHeaders(skipLoading?: boolean): HttpHeaders | undefined {
+    return skipLoading ? new HttpHeaders({ 'X-Skip-Loading': 'true' }) : undefined;
   }
 }

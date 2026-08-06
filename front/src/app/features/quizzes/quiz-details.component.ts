@@ -77,7 +77,7 @@ import { QuizAccessComponent } from './quiz-access.component';
             [quizId]="quiz.id"
             [quizTitle]="quiz.title"
             [questions]="quiz.questions || []"
-            (questionsChanged)="load()">
+            (questionsChanged)="load(true)">
           </app-quiz-questions>
         }
 
@@ -268,9 +268,9 @@ export class QuizDetailsComponent implements OnInit {
     });
   }
 
-  load(): void {
+  load(skipLoading: boolean = false): void {
     this.error = '';
-    this.quizService.getById(this.id).subscribe({
+    this.quizService.getById(this.id, { skipLoading }).subscribe({
       next: (res) => {
         this.quiz = res;
         this.quiz.questions = (this.quiz.questions || []).map((item: any, index: number) => ({

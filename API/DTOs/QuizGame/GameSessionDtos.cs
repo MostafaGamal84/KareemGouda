@@ -64,10 +64,12 @@ public class SessionStateDto
     public DateTime? ScheduledEndAt { get; set; }
     public int? DurationMinutes { get; set; }
     public int CurrentQuestionIndex { get; set; }
+    public int TotalQuestions { get; set; }
     public QuestionResponseDto? CurrentQuestion { get; set; }
     public QuestionResponseDto? NextQuestion { get; set; }
     public DateTime? CurrentQuestionEndsAtUtc { get; set; }
     public int? CurrentQuestionDurationSeconds { get; set; }
+    public DateTime? SessionEndsAtUtc { get; set; }
     public int ParticipantsCount { get; set; }
 }
 

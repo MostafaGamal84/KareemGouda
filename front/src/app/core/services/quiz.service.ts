@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { PagedResult, Question, Quiz } from '../models';
 import { map, switchMap } from 'rxjs';
@@ -33,8 +33,10 @@ export class QuizService {
     );
   }
 
-  getById(id: number) {
-    return this.http.get<any>(`${this.base}/${id}`).pipe(map((res) => this.normalizeQuizDetails(res)));
+  getById(id: number, options?: { skipLoading?: boolean }) {
+    return this.http.get<any>(`${this.base}/${id}`, {
+      headers: this.buildHeaders(options?.skipLoading)
+    }).pipe(map((res) => this.normalizeQuizDetails(res)));
   }
   getCategories() {
     return this.http.get<any[]>(`${this.base}/categories`).pipe(
@@ -52,7 +54,11 @@ export class QuizService {
     return this.http.post<any>(`${this.base}/${id}/cover-image`, formData);
   }
   delete(id: number) { return this.http.delete(`${this.base}/${id}`); }
-  addQuestions(id: number, payload: any[]) { return this.http.post(`${this.base}/${id}/questions`, payload); }
+  addQuestions(id: number, payload: any[], options?: { skipLoading?: boolean }) {
+    return this.http.post(`${this.base}/${id}/questions`, payload, {
+      headers: this.buildHeaders(options?.skipLoading)
+    });
+  }
   removeQuestion(id: number, quizQuestionId: number) { return this.http.delete(`${this.base}/${id}/questions/${quizQuestionId}`); }
   reorderQuestions(id: number, payload: any[]) { return this.http.put(`${this.base}/${id}/questions/reorder`, payload); }
   publish(id: number, isPublished: boolean) { return this.http.put(`${this.base}/${id}/publish`, { isPublished }); }
@@ -202,5 +208,9 @@ export class QuizService {
     if (value === null || value === undefined || value === '') return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private buildHeaders(skipLoading?: boolean): HttpHeaders | undefined {
+    return skipLoading ? new HttpHeaders({ 'X-Skip-Loading': 'true' }) : undefined;
   }
 }

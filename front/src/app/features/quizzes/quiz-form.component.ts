@@ -167,13 +167,13 @@ import { of, switchMap } from 'rxjs';
       }
 
       @if (currentStep === 4) {
-        <div class="step-content">
+        <div class="step-content step-content-questions">
           <h3>Questions</h3>
           <app-quiz-questions
             [quizId]="id || 0"
             [quizTitle]="model.title"
             [questions]="questions"
-            (questionsChanged)="loadQuestions()">
+            (questionsChanged)="loadQuestions(true)">
           </app-quiz-questions>
         </div>
       }
@@ -287,6 +287,24 @@ import { of, switchMap } from 'rxjs';
 
     .step-content {
       padding: 16px 0;
+    }
+
+    .step-content-questions {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 16px;
+      min-height: 0;
+      height: calc(100vh - 260px);
+    }
+
+    .step-content-questions h3 {
+      margin-bottom: 0;
+    }
+
+    .step-content-questions app-quiz-questions {
+      display: block;
+      height: 100%;
+      min-height: 0;
     }
 
     .step-content h3 {
@@ -415,6 +433,10 @@ import { of, switchMap } from 'rxjs';
     }
 
     @media (max-width: 600px) {
+      .step-content-questions {
+        height: auto;
+      }
+
       .stepper-steps {
         justify-content: space-between;
         overflow-x: auto;
@@ -536,9 +558,9 @@ export class QuizFormComponent implements OnInit {
     });
   }
 
-  loadQuestions(): void {
+  loadQuestions(skipLoading: boolean = false): void {
     if (!this.id) return;
-    this.service.getById(this.id).subscribe((res: any) => {
+    this.service.getById(this.id, { skipLoading }).subscribe((res: any) => {
       this.questions = res.questions || [];
     });
   }

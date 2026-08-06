@@ -145,7 +145,7 @@ export class PlayerWaitingRoomComponent implements OnInit, OnDestroy {
   }
 
   load(): void {
-    this.playerService.waitingRoom(this.sessionId).subscribe({
+    this.playerService.waitingRoom(this.sessionId, { skipLoading: true }).subscribe({
       next: (res) => {
         this.room = res;
         this.isSessionEnded = this.isEndedStatus(res?.sessionStatus);
@@ -180,7 +180,7 @@ export class PlayerWaitingRoomComponent implements OnInit, OnDestroy {
   loadParticipantStatus(): void {
     if (!this.participantId) return;
 
-    this.playerService.participantStatus(this.sessionId, this.participantId, this.participantToken).subscribe({
+    this.playerService.participantStatus(this.sessionId, this.participantId, this.participantToken, { skipLoading: true }).subscribe({
       next: (res) => {
         this.participantStatus = this.joinStatusLabel(res?.joinStatus);
         this.decisionNote = res?.decisionNote || '';

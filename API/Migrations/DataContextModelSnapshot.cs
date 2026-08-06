@@ -235,6 +235,15 @@ namespace API.Migrations
                     b.Property<DateTime>("RequestedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("TestCompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("TestEndsAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("TestStartedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("TotalScore")
                         .HasColumnType("int");
 

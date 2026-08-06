@@ -133,6 +133,12 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
                     </svg>
                     Remove Category
                   </button>
+                  <button type="button" (click)="openBulkSettings('duration'); closeBulkDropdown()">
+                    Edit Duration
+                  </button>
+                  <button type="button" (click)="openBulkSettings('points'); closeBulkDropdown()">
+                    Edit Points
+                  </button>
                   <button type="button" (click)="bulkExport(); closeBulkDropdown()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -324,7 +330,7 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
               <div class="row-content">
                 <div class="row-main">
                   <div class="row-title">{{ q.title }}</div>
-                  <div class="row-text">{{ getPreviewText(q.text) }}</div>
+                  <div class="row-text">{{ getFullQuestionText(q.text) }}</div>
                   
                   @if (q.choices && q.choices.length > 0) {
                     <div class="row-choices">
@@ -442,6 +448,40 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
             <button type="button" class="secondary" (click)="closeAssignModal()">Cancel</button>
             <button type="button" [disabled]="selectedQuestions.size === 0 || selectedQuizId === 0" (click)="assignSelectedToQuiz()">
               Assign
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (showBulkSettingsModal) {
+      <div class="modal-overlay" (click)="closeBulkSettings()">
+        <div class="modal-content" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <h3>{{ bulkSettingsMode === 'points' ? 'Edit points' : 'Edit duration' }}</h3>
+            <button type="button" class="close-btn" (click)="closeBulkSettings()">×</button>
+          </div>
+          <div class="modal-body">
+            <p>This value will be applied to {{ selectedQuestions.size }} selected question(s).</p>
+            <div class="field">
+              <label for="bulk-settings-value">
+                {{ bulkSettingsMode === 'points' ? 'Points' : 'Answer time (seconds)' }}
+              </label>
+              <input
+                id="bulk-settings-value"
+                type="number"
+                [(ngModel)]="bulkSettingsValue"
+                [min]="bulkSettingsMode === 'points' ? 1 : 0"
+                [max]="bulkSettingsMode === 'points' ? null : 300" />
+              @if (bulkSettingsMode === 'duration') {
+                <small>Use 0 for unlimited time; otherwise enter 5–300 seconds.</small>
+              }
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="secondary" (click)="closeBulkSettings()" [disabled]="bulkSettingsSaving">Cancel</button>
+            <button type="button" (click)="applyBulkSettings()" [disabled]="bulkSettingsSaving">
+              {{ bulkSettingsSaving ? 'Applying...' : 'Apply' }}
             </button>
           </div>
         </div>
@@ -1353,6 +1393,10 @@ export class QuestionBankComponent implements OnInit {
   bulkPanelShowExisting = false;
   bulkRemoveAllMode = false;
   bulkRemoveSelectedIds = new Set<number>();
+  showBulkSettingsModal = false;
+  bulkSettingsMode: 'points' | 'duration' = 'points';
+  bulkSettingsValue: number | null = null;
+  bulkSettingsSaving = false;
 
   constructor(
     private questionService: QuestionService,
@@ -1795,9 +1839,11 @@ export class QuestionBankComponent implements OnInit {
     }
   }
 
-  getPreviewText(text: string): string {
-    const plain = text.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-    return plain.length > 150 ? plain.substring(0, 150) + '...' : plain;
+  getFullQuestionText(text: string): string {
+    return String(text || '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
   }
 
   get selectedQuestionsOnPageCount(): number {
@@ -1834,6 +1880,7 @@ export class QuestionBankComponent implements OnInit {
     this.allSelected = false;
     this.closeBulkDropdown();
     this.closeBulkCategoryPanel();
+    this.closeBulkSettings();
   }
 
   bulkDelete(): void {
@@ -1900,6 +1947,66 @@ export class QuestionBankComponent implements OnInit {
           this.toast.show(err?.error?.message || 'Failed to add category', 'error');
         }
       });
+  }
+
+  openBulkSettings(mode: 'points' | 'duration'): void {
+    this.bulkSettingsMode = mode;
+    this.bulkSettingsValue = mode === 'points' ? 1 : 30;
+    this.showBulkSettingsModal = true;
+    this.error = '';
+  }
+
+  closeBulkSettings(): void {
+    if (this.bulkSettingsSaving) {
+      return;
+    }
+
+    this.showBulkSettingsModal = false;
+    this.bulkSettingsValue = null;
+  }
+
+  applyBulkSettings(): void {
+    const ids = Array.from(this.selectedQuestions);
+    const value = Number(this.bulkSettingsValue);
+    if (ids.length === 0) {
+      this.closeBulkSettings();
+      return;
+    }
+
+    if (!Number.isInteger(value)) {
+      this.toast.error('Enter a whole number.');
+      return;
+    }
+
+    if (this.bulkSettingsMode === 'points' && value <= 0) {
+      this.toast.error('Points must be greater than 0.');
+      return;
+    }
+
+    if (this.bulkSettingsMode === 'duration' && value !== 0 && (value < 5 || value > 300)) {
+      this.toast.error('Duration must be 0 (unlimited) or between 5 and 300 seconds.');
+      return;
+    }
+
+    const settings = this.bulkSettingsMode === 'points'
+      ? { points: value }
+      : { answerSeconds: value };
+
+    this.bulkSettingsSaving = true;
+    this.questionService.bulkUpdateSettings(ids, settings).subscribe({
+      next: (result) => {
+        this.bulkSettingsSaving = false;
+        this.showBulkSettingsModal = false;
+        this.bulkSettingsValue = null;
+        this.toast.success(result?.message || `Updated ${ids.length} questions`);
+        this.clearSelection();
+        this.loadQuestions();
+      },
+      error: (err) => {
+        this.bulkSettingsSaving = false;
+        this.toast.error(err?.error?.message || 'Failed to update questions');
+      }
+    });
   }
 
   bulkExport(): void {

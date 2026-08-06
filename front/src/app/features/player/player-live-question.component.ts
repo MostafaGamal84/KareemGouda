@@ -24,8 +24,8 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
         </div>
         <div class="hero-badge" [class.hero-badge-danger]="isTimedFlow() && isTimeUp">
           @if (isTimedFlow()) {
-            <span class="hero-value">{{ timeRemainingSeconds }}s</span>
-            <span class="hero-label">Time</span>
+            <span class="hero-value">{{ hasUnlimitedTime() ? '∞' : timeRemainingSeconds + 's' }}</span>
+            <span class="hero-label">{{ isTimedTestFlow() ? 'Test time' : 'Time' }}</span>
           } @else {
             <span class="hero-value">Host</span>
             <span class="hero-label">Flow</span>
@@ -44,8 +44,37 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
       <section class="sheet">
         <nav class="sheet-tabs" aria-label="View switcher">
           <button type="button" [class.active]="activeTab === 'interactions'" (click)="setTab('interactions')">Interactions</button>
-          <button type="button" [class.active]="activeTab === 'leaderboard'" (click)="setTab('leaderboard')">Leaderboard</button>
+          @if (!isTimedTestFlow()) {
+            <button type="button" [class.active]="activeTab === 'leaderboard'" (click)="setTab('leaderboard')">Leaderboard</button>
+          }
         </nav>
+
+        @if (totalQuestions > 0) {
+          <section class="progress-board" aria-label="Question progress">
+            <div class="progress-board-head">
+              <div>
+                <p class="progress-kicker">Question Progress</p>
+                <h3>Question {{ currentDisplayNumber() }} of {{ totalQuestions }}</h3>
+              </div>
+              <span class="progress-summary">{{ questionProgressPercent() }}% completed</span>
+            </div>
+
+            <div class="progress-track">
+              <div class="progress-fill" [style.width.%]="questionProgressPercent()"></div>
+            </div>
+
+            <div class="question-map" aria-hidden="true">
+              @for (item of questionNumbers; track item) {
+                <span
+                  class="question-chip"
+                  [class.question-chip-current]="item - 1 === currentQuestionIndex"
+                  [class.question-chip-past]="item - 1 < currentQuestionIndex">
+                  {{ item }}
+                </span>
+              }
+            </div>
+          </section>
+        }
 
         @if (activeTab === 'interactions') {
           <div class="sheet-body">
@@ -57,7 +86,7 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
                 <img class="question-inline-image" [src]="question.imageUrl" alt="Question illustration" />
               }
 
-              @if (isTimedFlow()) {
+              @if (isTimedFlow() && !hasUnlimitedTime()) {
                 <div class="timer-track">
                   <div class="timer-fill" [class.timer-fill-danger]="isTimeUp" [style.width.%]="timeProgressPercent()"></div>
                 </div>
@@ -114,14 +143,28 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
               <div class="action-row" [class.action-row-choice]="question.type !== 3">
                 @if (needsSubmitButton()) {
                   <button class="submit-btn" [disabled]="submitted || isPaused || isTimeUp || isSessionEnded || isSubmittingAnswer" (click)="submit()">
-                    {{ submitted ? 'Submitted' : (isSubmittingAnswer ? 'Submitting...' : 'Submit Answer') }}
+                    {{ submitted ? 'Submitted' : (isSubmittingAnswer ? 'Saving...' : (isTimedTestFlow() ? (isTimedTestAnswerSaved() ? 'Update Answer' : 'Save Answer') : 'Submit Answer')) }}
                   </button>
                 }
                 <button class="action-btn" (click)="refreshLeaderboard()">Refresh</button>
                 <button class="action-btn" [disabled]="isSessionEnded || isLeaving" (click)="leaveSession()">Leave</button>
               </div>
 
-              @if ((submitted || isRevealPhase) && question.explanation) {
+              @if (isTimedTestFlow()) {
+                <div class="action-row">
+                  <button class="action-btn" [disabled]="currentQuestionIndex <= 0 || isSubmittingAnswer" (click)="goToTimedTestQuestion(currentQuestionIndex - 1)">
+                    Previous
+                  </button>
+                  <button class="action-btn" [disabled]="currentQuestionIndex >= totalQuestions - 1 || isSubmittingAnswer" (click)="goToTimedTestQuestion(currentQuestionIndex + 1)">
+                    Next
+                  </button>
+                  <button class="submit-btn" [disabled]="isCompletingTest || isSubmittingAnswer" (click)="completeTimedTest()">
+                    {{ isCompletingTest ? 'Finishing...' : 'Finish Test' }}
+                  </button>
+                </div>
+              }
+
+              @if (!isTimedTestFlow() && (submitted || isRevealPhase) && question.explanation) {
                 <div class="voice-status voice-status-live">
                   <span>{{ question.explanation }}</span>
                 </div>
@@ -287,6 +330,103 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
       background: var(--primary-gradient);
       color: #ffffff;
       box-shadow: none;
+    }
+
+    .progress-board {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .progress-board-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .progress-kicker {
+      margin: 0 0 4px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.72rem;
+      font-weight: 800;
+    }
+
+    .progress-board-head h3 {
+      margin: 0;
+      font-size: 1rem;
+      color: var(--text);
+    }
+
+    .progress-summary {
+      color: var(--muted-strong);
+      font-size: 0.84rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .progress-track {
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      min-width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      transition: width 180ms ease;
+    }
+
+    .question-map {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      scrollbar-gutter: stable;
+    }
+
+    .question-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      min-width: 36px;
+      height: 36px;
+      min-height: 36px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      color: var(--muted-strong);
+      font-size: 0.84rem;
+      font-weight: 700;
+      user-select: none;
+      pointer-events: none;
+      flex-shrink: 0;
+    }
+
+    .question-chip.question-chip-past {
+      background: var(--success-tint);
+      border-color: var(--success-border);
+      color: var(--success);
+    }
+
+    .question-chip.question-chip-current {
+      background: var(--primary-gradient);
+      border-color: var(--input-focus-border);
+      color: #ffffff;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
     }
 
     .sheet-body {
@@ -570,6 +710,14 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
         inset-inline: 10px;
       }
 
+      .progress-board {
+        padding: 12px;
+      }
+
+      .progress-summary {
+        white-space: normal;
+      }
+
       .hero-stage {
         min-height: 42vh;
         padding-inline: 12px;
@@ -600,6 +748,8 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   quizCoverImageUrl = '';
   questionFlowMode = 1;
   currentQuestionIndex = -1;
+  totalQuestions = 0;
+  questionNumbers: number[] = [];
   currentQuestionEndsAtUtc: string | null = null;
   questionStartedAtMs = 0;
   questionDurationSeconds = 0;
@@ -616,6 +766,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   isRevealPhase = false;
   submittedIsCorrect: boolean | null = null;
   correctChoiceIds: number[] = [];
+  timedTestSavedQuestionIds = new Set<number>();
   isPaused = false;
   isSessionEnded = false;
   isHostVoiceLive = false;
@@ -624,6 +775,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   message = '';
   error = '';
   isLeaving = false;
+  isCompletingTest = false;
   private stateSyncId: ReturnType<typeof setInterval> | null = null;
   private questionTimerId: ReturnType<typeof setInterval> | null = null;
   private revealTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -772,7 +924,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   submit(): void {
     if (!this.question || this.submitted || this.isSubmittingAnswer) return;
     if (this.isTimedFlow() && this.isTimeUp) {
-      this.error = 'Time is up for this question';
+      this.error = this.isTimedTestFlow() ? 'Test time has ended' : 'Time is up for this question';
       return;
     }
 
@@ -790,6 +942,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
 
     this.playerService.submitAnswer(this.sessionId, {
       participantId: this.participantId,
+      participantToken: this.participantToken,
       questionId: this.question.id,
       selectedChoiceId: this.selectedChoiceIds.length === 1 ? this.selectedChoiceIds[0] : null,
       selectedChoiceIds: this.selectedChoiceIds,
@@ -805,7 +958,17 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
           return;
         }
 
-        this.submitted = true;
+        const resultsDeferred = Boolean(res?.resultsDeferred ?? res?.ResultsDeferred ?? false);
+        this.submitted = !resultsDeferred;
+        if (resultsDeferred) {
+          this.timedTestSavedQuestionIds.add(Number(this.question.id));
+          this.timedTestSavedQuestionIds = new Set(this.timedTestSavedQuestionIds);
+          this.submittedIsCorrect = null;
+          this.correctChoiceIds = [];
+          this.message = 'Answer saved. You can return and update it before time ends.';
+          this.cdr.detectChanges();
+          return;
+        }
         const isCorrect = Boolean(res?.isCorrect ?? res?.IsCorrect ?? false);
         this.submittedIsCorrect = isCorrect;
         const correctChoiceIds = Array.isArray(res?.correctChoiceIds ?? res?.CorrectChoiceIds)
@@ -864,6 +1027,122 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     this.activeTab = tab;
   }
 
+  goToTimedTestQuestion(index: number): void {
+    if (!this.isTimedTestFlow() || index < 0 || index >= this.totalQuestions || this.isSubmittingAnswer) {
+      return;
+    }
+
+    this.loadTimedTestQuestion(index);
+  }
+
+  isTimedTestAnswerSaved(): boolean {
+    return Boolean(this.question) && this.timedTestSavedQuestionIds.has(Number(this.question.id));
+  }
+
+  hasUnlimitedTime(): boolean {
+    return this.isTimedTestFlow() && !this.currentQuestionEndsAtUtc;
+  }
+
+  completeTimedTest(): void {
+    if (!this.isTimedTestFlow() || this.isCompletingTest) {
+      return;
+    }
+
+    if (!confirm('Finish this test now? You will not be able to change your answers afterward.')) {
+      return;
+    }
+
+    this.isCompletingTest = true;
+    this.playerService.completeTest(this.sessionId, {
+      participantId: this.participantId,
+      participantToken: this.participantToken
+    }).subscribe({
+      next: () => {
+        this.isCompletingTest = false;
+        this.router.navigate(['/player/session', this.sessionId, 'result', this.participantId]);
+      },
+      error: (err) => {
+        this.isCompletingTest = false;
+        this.error = err?.error?.message || 'Unable to finish the test';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private loadTimedTestQuestion(index: number): void {
+    this.error = '';
+    this.playerService.currentQuestion(
+      this.sessionId,
+      {
+        questionIndex: index,
+        participantId: this.participantId,
+        token: this.participantToken
+      },
+      { skipLoading: true }
+    ).subscribe({
+      next: (question) => {
+        this.currentQuestionIndex = index;
+        this.resetInteractionForNewQuestion();
+        this.questionStartedAtMs = Date.now();
+        this.question = {
+          ...question,
+          imageUrl: this.resolveAssetUrl(question?.imageUrl ?? question?.ImageUrl ?? ''),
+          choices: Array.isArray(question?.choices ?? question?.Choices)
+            ? (question?.choices ?? question?.Choices).map((choice: any) => ({
+                ...choice,
+                imageUrl: this.resolveAssetUrl(choice?.imageUrl ?? choice?.ImageUrl ?? '')
+              }))
+            : []
+        };
+
+        const playerTestEndsAt =
+          question?.playerTestEndsAtUtc ??
+          question?.PlayerTestEndsAtUtc ??
+          null;
+        const playerTestStartedAt =
+          question?.playerTestStartedAtUtc ??
+          question?.PlayerTestStartedAtUtc ??
+          null;
+        const playerDurationMinutes = Number(
+          question?.playerTestDurationMinutes ??
+          question?.PlayerTestDurationMinutes ??
+          0
+        );
+        this.currentQuestionEndsAtUtc = playerTestEndsAt ? String(playerTestEndsAt) : null;
+        const startedAtMs = this.parseServerDateAsUtcMs(playerTestStartedAt ? String(playerTestStartedAt) : null);
+        const endsAtMs = this.parseServerDateAsUtcMs(this.currentQuestionEndsAtUtc);
+        this.questionDurationSeconds = Number.isFinite(startedAtMs) && Number.isFinite(endsAtMs)
+          ? Math.max(0, Math.ceil((endsAtMs - startedAtMs) / 1000))
+          : Math.max(0, playerDurationMinutes * 60);
+        if (this.currentQuestionEndsAtUtc) {
+          this.startQuestionTimer(this.currentQuestionEndsAtUtc);
+        } else {
+          this.stopQuestionTimer();
+          this.timeRemainingSeconds = 0;
+          this.isTimeUp = false;
+        }
+
+        const saved = question?.savedAnswer ?? question?.SavedAnswer ?? null;
+        if (saved) {
+          const savedIds = saved?.selectedChoiceIds ?? saved?.SelectedChoiceIds ?? [];
+          const singleId = Number(saved?.selectedChoiceId ?? saved?.SelectedChoiceId ?? 0);
+          this.selectedChoiceIds = Array.isArray(savedIds) && savedIds.length
+            ? savedIds.map((id: any) => Number(id)).filter((id: number) => id > 0)
+            : (singleId > 0 ? [singleId] : []);
+          this.textAnswer = String(saved?.textAnswer ?? saved?.TextAnswer ?? '');
+          this.timedTestSavedQuestionIds.add(Number(this.question.id));
+          this.timedTestSavedQuestionIds = new Set(this.timedTestSavedQuestionIds);
+        }
+
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.error = err?.error?.message || 'Unable to load this question';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
   timeProgressPercent(): number {
     const total = Math.max(0, Number(this.questionDurationSeconds || this.question?.answerSeconds || 0));
     if (total <= 0) {
@@ -874,8 +1153,28 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     return (remaining / total) * 100;
   }
 
+  currentDisplayNumber(): number {
+    if (this.totalQuestions <= 0) {
+      return 0;
+    }
+
+    if (this.currentQuestionIndex < 0) {
+      return 1;
+    }
+
+    return Math.min(this.totalQuestions, this.currentQuestionIndex + 1);
+  }
+
+  questionProgressPercent(): number {
+    if (this.totalQuestions <= 0 || this.currentQuestionIndex < 0) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(100, Math.round(((this.currentQuestionIndex + 1) / this.totalQuestions) * 100)));
+  }
+
   refreshLeaderboard(): void {
-    this.playerService.leaderboard(this.sessionId).subscribe({
+    this.playerService.leaderboard(this.sessionId, { skipLoading: true }).subscribe({
       next: (res) => {
         this.leaderboard = res;
         this.cdr.detectChanges();
@@ -912,7 +1211,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   private async ensureParticipantApproved(): Promise<boolean> {
     try {
       const status = await firstValueFrom(
-        this.playerService.participantStatus(this.sessionId, this.participantId, this.participantToken)
+        this.playerService.participantStatus(this.sessionId, this.participantId, this.participantToken, { skipLoading: true })
       );
 
       const normalized = this.normalizeJoinStatus(status?.joinStatus ?? status?.JoinStatus);
@@ -984,10 +1283,25 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
       payload?.CurrentQuestionEndsAt ??
       null;
 
-    this.questionFlowMode = flowMode === 2 ? 2 : 1;
+    const previousFlowMode = this.questionFlowMode;
+    const previousEndsAtUtc = this.currentQuestionEndsAtUtc;
+    const previousDurationSeconds = this.questionDurationSeconds;
+    const totalQuestions = Number(payload?.totalQuestions ?? payload?.TotalQuestions ?? 0);
+    if (totalQuestions > 0) {
+      this.totalQuestions = totalQuestions;
+      this.syncQuestionNumbers();
+    } else if (this.currentQuestionIndex >= 0 && this.totalQuestions < this.currentQuestionIndex + 1) {
+      this.totalQuestions = this.currentQuestionIndex + 1;
+      this.syncQuestionNumbers();
+    }
+    this.questionFlowMode = flowMode === 2 || flowMode === 3 ? flowMode : 1;
     const previousIndex = this.currentQuestionIndex;
     if (index >= 0) {
       this.currentQuestionIndex = index;
+      if (this.totalQuestions < this.currentQuestionIndex + 1) {
+        this.totalQuestions = this.currentQuestionIndex + 1;
+        this.syncQuestionNumbers();
+      }
     }
     this.currentQuestionEndsAtUtc = endsAt ? String(endsAt) : null;
 
@@ -1026,8 +1340,13 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
       const fromQuestion = Number(currentQuestion?.answerSeconds ?? currentQuestion?.AnswerSeconds ?? 0);
       this.questionDurationSeconds = this.normalizeDurationSeconds(durationFromState || fromQuestion || this.questionDurationSeconds);
       this.error = '';
-      if (this.isTimedFlow()) {
-        this.startQuestionTimer(this.currentQuestionEndsAtUtc);
+      const endsAtChanged = (this.currentQuestionEndsAtUtc ?? '') !== (previousEndsAtUtc ?? '');
+      const durationChanged = this.questionDurationSeconds !== previousDurationSeconds;
+      const flowChanged = this.questionFlowMode !== previousFlowMode;
+      if (this.isTimedFlow() && !this.isPaused) {
+        if (questionChanged || flowChanged || endsAtChanged || durationChanged || !this.questionTimerId) {
+          this.startQuestionTimer(this.currentQuestionEndsAtUtc);
+        }
       } else {
         this.stopQuestionTimer();
       }
@@ -1044,8 +1363,19 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   }
 
   private loadQuestionFromState(): void {
-    this.gameSessionService.state(this.sessionId).subscribe({
+    this.gameSessionService.state(this.sessionId, { skipLoading: true }).subscribe({
       next: (state) => {
+        const incomingFlowMode = Number(state?.questionFlowMode ?? state?.QuestionFlowMode ?? 1);
+        if (incomingFlowMode === 3) {
+          const shouldLoadQuestion = !this.isTimedTestFlow() || !this.question;
+          this.applyTimedTestSessionState(state);
+          if (shouldLoadQuestion) {
+            this.loadTimedTestQuestion(Math.max(0, this.currentQuestionIndex));
+          }
+          this.cdr.detectChanges();
+          return;
+        }
+
         const incomingIndex = Number(state?.currentQuestionIndex ?? state?.CurrentQuestionIndex ?? -1);
         if (
           this.isRevealPhase &&
@@ -1071,6 +1401,43 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     });
   }
 
+  private applyTimedTestSessionState(state: any): void {
+    this.questionFlowMode = 3;
+    const status = Number(state?.status ?? state?.Status ?? 0);
+    this.isPaused = false;
+    this.isSessionEnded = status === 5;
+    const total = Number(state?.totalQuestions ?? state?.TotalQuestions ?? 0);
+    if (total > 0) {
+      this.totalQuestions = total;
+      this.syncQuestionNumbers();
+    }
+
+    if (this.currentQuestionIndex < 0) {
+      this.currentQuestionIndex = 0;
+    }
+
+    const coverImageUrl =
+      state?.quizCoverImageUrl ??
+      state?.QuizCoverImageUrl ??
+      state?.coverImageUrl ??
+      state?.CoverImageUrl ??
+      '';
+    this.quizCoverImageUrl = this.resolveAssetUrl(coverImageUrl);
+
+    if (this.isSessionEnded) {
+      this.router.navigate(['/player/session', this.sessionId, 'result', this.participantId]);
+      return;
+    }
+
+    if (this.currentQuestionEndsAtUtc) {
+      this.startQuestionTimer(this.currentQuestionEndsAtUtc);
+    } else if (this.question) {
+      this.stopQuestionTimer();
+      this.timeRemainingSeconds = 0;
+      this.isTimeUp = false;
+    }
+  }
+
   private startStateSync(): void {
     this.stopStateSync();
     this.stateSyncId = setInterval(() => {
@@ -1080,7 +1447,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
         this.loadQuestionFromState();
       }
 
-      if (!this.leaderboard.length) {
+      if (!this.isTimedTestFlow() && !this.leaderboard.length) {
         this.refreshLeaderboard();
       }
     }, 2500);
@@ -1210,7 +1577,12 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
       if (this.isTimeUp && !this.timeUpHandledForQuestion) {
         this.timeUpHandledForQuestion = true;
         this.message = 'Time is up';
-        this.showAnswerReveal(this.revealDurationMs);
+        if (this.isTimedTestFlow()) {
+          this.isSessionEnded = true;
+          this.router.navigate(['/player/session', this.sessionId, 'result', this.participantId]);
+        } else {
+          this.showAnswerReveal(this.revealDurationMs);
+        }
       }
 
       this.cdr.detectChanges();
@@ -1238,7 +1610,8 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     const raw = Number(value);
     if (!Number.isFinite(raw)) return 0;
     if (raw < 1) return 0;
-    if (raw > 600) return 600;
+    const maxSeconds = this.isTimedTestFlow() ? 86400 : 600;
+    if (raw > maxSeconds) return maxSeconds;
     return Math.floor(raw);
   }
 
@@ -1468,8 +1841,18 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     this.questionTimerId = null;
   }
 
+  private syncQuestionNumbers(): void {
+    const total = Math.max(0, Number(this.totalQuestions || 0));
+    this.questionNumbers = Array.from({ length: total }, (_, index) => index + 1);
+  }
+
   isTimedFlow(): boolean {
-    return Number(this.questionFlowMode) === 2;
+    const mode = Number(this.questionFlowMode);
+    return mode === 2 || mode === 3;
+  }
+
+  isTimedTestFlow(): boolean {
+    return Number(this.questionFlowMode) === 3;
   }
 
   private clearParticipantStorage(): void {

@@ -1,7 +1,7 @@
-import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
+import { Component, OnChanges, OnInit, Input, Output, EventEmitter, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { QuestionService } from '../../core/services/question.service';
 import { QuizService } from '../../core/services/quiz.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -9,6 +9,8 @@ import { QuestionPdfExportService } from '../../core/services/question-pdf-expor
 import { firstValueFrom } from 'rxjs';
 import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
 import { Question } from '../../core/models';
+import { QuestionCategory, QuestionCategoryService } from '../../core/services/question-category.service';
+import { PaginationControlsComponent } from '../../shared/pagination-controls.component';
 
 interface CategoryWithCount {
   id: number;
@@ -21,7 +23,7 @@ interface CategoryWithCount {
 @Component({
   standalone: true,
   selector: 'app-quiz-questions',
-  imports: [CommonModule, FormsModule, RouterLink, SafeRichTextPipe],
+  imports: [CommonModule, FormsModule, RouterLink, SafeRichTextPipe, PaginationControlsComponent],
   template: `
     <div class="quiz-questions-panel">
       <div class="panel-header">
@@ -42,12 +44,14 @@ interface CategoryWithCount {
       </div>
 
       @if ((questions || []).length) {
-        <div class="question-list">
-          @for (item of questions; track item.id; let i = $index) {
+        <div class="question-workspace">
+          <div class="question-list-frame">
+            <div class="question-list">
+          @for (item of pagedQuestions; track item.id; let i = $index) {
             <article class="question-card">
               <div class="question-card-head">
                 <div class="question-info">
-                  <span class="question-num">{{ i + 1 }}</span>
+                  <span class="question-num">{{ questionPageStartIndex + i + 1 }}</span>
                   <div class="question-title-row">
                     <h4>{{ item.question?.title || item.questionTitle }}</h4>
                     <div class="question-badges">
@@ -112,7 +116,8 @@ interface CategoryWithCount {
                 </div>
                 <div class="setting-item">
                   <label>Time (sec)</label>
-                  <input type="number" [(ngModel)]="item.answerSeconds" min="5" max="300" />
+                  <input type="number" [(ngModel)]="item.answerSeconds" min="0" max="300" />
+                  <small>0 = unlimited</small>
                 </div>
                 <div class="setting-item">
                   <label>Points</label>
@@ -122,15 +127,31 @@ interface CategoryWithCount {
               </div>
             </article>
           }
-        </div>
+            </div>
+          </div>
 
-        <div class="actions-bar">
-          <button type="button" (click)="saveSettings()">Save Changes</button>
+          @if (questionTotalPages > 1 || questionPageSize !== questionPageSizeOptions[0]) {
+            <app-pagination-controls
+              [page]="questionPage"
+              [totalPages]="questionTotalPages"
+              [pageSize]="questionPageSize"
+              [sizeOptions]="questionPageSizeOptions"
+              (pageChange)="onQuestionPageChange($event)"
+              (pageSizeChange)="onQuestionPageSizeChange($event)" />
+          }
+
+          <div class="actions-bar">
+            <button type="button" (click)="saveSettings()">Save Changes</button>
+          </div>
         </div>
       } @else {
-        <div class="empty-state">
-          <h4>No questions yet</h4>
-          <p>Add questions from the question bank or create new ones</p>
+        <div class="question-workspace">
+          <div class="question-list-frame">
+            <div class="empty-state">
+              <h4>No questions yet</h4>
+              <p>Add questions from the question bank or create new ones</p>
+            </div>
+          </div>
         </div>
       }
 
@@ -146,15 +167,30 @@ interface CategoryWithCount {
           </div>
           <div class="modal-body">
             <div class="browser-filters">
-              <input type="text" [(ngModel)]="browserSearch" placeholder="Search questions..." (keyup.enter)="loadQuestionBank()" />
-              <button type="button" class="secondary" (click)="loadQuestionBank()">Search</button>
+              <input
+                type="text"
+                [(ngModel)]="browserSearch"
+                placeholder="Search by keyword, question text, answer, or category"
+                (keyup.enter)="applyQuestionBankFilters()" />
+              <select [(ngModel)]="browserCategoryId" (change)="applyQuestionBankFilters()">
+                <option [ngValue]="null">All categories</option>
+                @for (category of bankCategories; track category.id) {
+                  <option [ngValue]="category.id">{{ category.name }} ({{ category.questionsCount }})</option>
+                }
+              </select>
+              <button type="button" class="secondary" (click)="applyQuestionBankFilters()" [disabled]="bankLoading || questionActionLoading">
+                {{ bankLoading ? 'Searching...' : 'Search' }}
+              </button>
+              <button type="button" class="secondary" (click)="clearQuestionBankFilters()" [disabled]="questionActionLoading || (!browserSearch && !browserCategoryId)">
+                Clear
+              </button>
             </div>
 
-            @if (bankQuestions.length > 0) {
+            @if (bankQuestions.length > 0 || bankTotalCount > 0) {
               <div class="browser-actions">
-                <button type="button" class="secondary" (click)="selectAllBankQuestions()">Select All</button>
-                <button type="button" class="secondary" (click)="clearBankSelection()">Clear</button>
-                <span>{{ selectedBankQuestions.size }} selected</span>
+                <button type="button" class="secondary" (click)="selectAllBankQuestions()" [disabled]="bankLoading || questionActionLoading">Select All</button>
+                <button type="button" class="secondary" (click)="clearBankSelection()" [disabled]="questionActionLoading">Clear</button>
+                <span>{{ selectedBankQuestions.size }} selected | {{ bankTotalCount }} match(es)</span>
               </div>
             }
 
@@ -163,7 +199,7 @@ interface CategoryWithCount {
                 <div class="bank-question-item" 
                      [class.selected]="selectedBankQuestions.has(q.id)"
                      [class.disabled]="isQuestionLinked(q.id)"
-                     (click)="!isQuestionLinked(q.id) && toggleBankQuestion(q.id)">
+                     (click)="!questionActionLoading && !isQuestionLinked(q.id) && toggleBankQuestion(q.id)">
                   <div class="bank-checkbox" [class.checked]="selectedBankQuestions.has(q.id)">
                     @if (selectedBankQuestions.has(q.id)) {
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
@@ -191,17 +227,27 @@ interface CategoryWithCount {
               }
             </div>
 
+            @if (bankTotalPages > 1 || bankPageSize !== bankPageSizeOptions[0]) {
+              <app-pagination-controls
+                [page]="bankPage"
+                [totalPages]="bankTotalPages"
+                [pageSize]="bankPageSize"
+                [sizeOptions]="bankPageSizeOptions"
+                (pageChange)="onBankPageChange($event)"
+                (pageSizeChange)="onBankPageSizeChange($event)" />
+            }
+
             @if (bankLoading) {
               <p class="loading">Loading...</p>
             }
           </div>
           <div class="modal-footer">
-            <button type="button" class="secondary" (click)="closeQuestionBrowser()">Cancel</button>
-            <button type="button" [disabled]="selectedBankQuestions.size === 0" (click)="addSelectedQuestions()">
-              Add {{ selectedBankQuestions.size }} Question(s)
+            <button type="button" class="secondary" (click)="closeQuestionBrowser()" [disabled]="questionActionLoading">Cancel</button>
+            <button type="button" [disabled]="selectedBankQuestions.size === 0 || questionActionLoading" (click)="addSelectedQuestions()">
+              {{ questionActionLoading ? 'Adding...' : 'Add ' + selectedBankQuestions.size + ' Question(s)' }}
             </button>
-            <button type="button" [disabled]="selectedBankQuestions.size === 0" (click)="addSelectedQuestions(true)">
-              Add & Save
+            <button type="button" [disabled]="selectedBankQuestions.size === 0 || questionActionLoading" (click)="addSelectedQuestions(true)">
+              {{ questionActionLoading ? 'Adding...' : 'Add & Save' }}
             </button>
           </div>
         </div>
@@ -245,12 +291,12 @@ interface CategoryWithCount {
             }
           </div>
           <div class="modal-footer">
-            <button type="button" class="secondary" (click)="closeRandomSelector()">Cancel</button>
-            <button type="button" [disabled]="randomLoading || getTotalSelected() === 0" (click)="addRandomQuestions()">
-              Add {{ getTotalSelected() }} Question(s)
+            <button type="button" class="secondary" (click)="closeRandomSelector()" [disabled]="questionActionLoading">Cancel</button>
+            <button type="button" [disabled]="randomLoading || questionActionLoading || getTotalSelected() === 0" (click)="addRandomQuestions()">
+              {{ questionActionLoading ? 'Adding...' : 'Add ' + getTotalSelected() + ' Question(s)' }}
             </button>
-            <button type="button" [disabled]="randomLoading || getTotalSelected() === 0" (click)="addRandomQuestions(true)">
-              Add & Save
+            <button type="button" [disabled]="randomLoading || questionActionLoading || getTotalSelected() === 0" (click)="addRandomQuestions(true)">
+              {{ questionActionLoading ? 'Adding...' : 'Add & Save' }}
             </button>
           </div>
         </div>
@@ -258,7 +304,13 @@ interface CategoryWithCount {
     }
   `,
   styles: [`
-    .quiz-questions-panel { display: grid; gap: 14px; }
+    .quiz-questions-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+      height: 100%;
+    }
 
     .panel-header {
       display: flex;
@@ -270,10 +322,36 @@ interface CategoryWithCount {
 
     .panel-header h3 { margin: 0; }
     .section-copy { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
-    .header-actions { display: flex; gap: 8px; }
+    .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .header-actions a { text-decoration: none; }
 
-    .question-list { display: grid; gap: 12px; }
+    .question-workspace {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .question-list-frame {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--surface);
+    }
+
+    .question-list {
+      display: grid;
+      gap: 12px;
+      height: 100%;
+      overflow-y: auto;
+      padding-right: 6px;
+      scrollbar-gutter: stable;
+      align-content: start;
+    }
 
     .question-card {
       padding: 16px;
@@ -521,10 +599,21 @@ interface CategoryWithCount {
       margin: 10px 0;
     }
 
-    .actions-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .actions-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-shrink: 0;
+    }
 
     .empty-state {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
       text-align: center;
+      min-height: 100%;
       padding: 48px 20px;
       border: 2px dashed var(--border);
       border-radius: 16px;
@@ -568,8 +657,20 @@ interface CategoryWithCount {
     .modal-body { flex: 1; overflow-y: auto; display: grid; gap: 12px; min-height: 0; }
     .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-shrink: 0; }
 
-    .browser-filters { display: flex; gap: 8px; }
-    .browser-filters input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+    .browser-filters {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 220px) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .browser-filters input,
+    .browser-filters select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--input-bg);
+    }
 
     .browser-actions { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
 
@@ -787,10 +888,17 @@ interface CategoryWithCount {
     @media (max-width: 760px) {
       .question-settings { grid-template-columns: 1fr; }
       .modal-content, .modal-large { min-width: auto; width: 95vw; }
+      .browser-filters { grid-template-columns: 1fr; }
+      .browser-actions { flex-wrap: wrap; }
+      .question-list-frame { padding: 10px; }
+      .browser-actions span {
+        width: 100%;
+        margin-left: 0;
+      }
     }
   `]
 })
-export class QuizQuestionsComponent implements OnInit {
+export class QuizQuestionsComponent implements OnInit, OnChanges {
   @Input() quizId!: number;
   @Input() quizTitle = '';
   @Input() questions: any[] = [];
@@ -800,42 +908,113 @@ export class QuizQuestionsComponent implements OnInit {
   showQuestionBrowser = false;
   showRandomSelector = false;
   bankQuestions: Question[] = [];
+  bankCategories: QuestionCategory[] = [];
   bankLoading = false;
   browserSearch = '';
+  browserCategoryId: number | null = null;
+  bankPage = 1;
+  bankPageSize = 20;
+  readonly bankPageSizeOptions = [20, 50, 100, 500, 1000] as const;
+  bankTotalCount = 0;
   selectedBankQuestions = new Set<number>();
   categoriesWithCounts: CategoryWithCount[] = [];
   randomLoading = false;
   exportingPdf = false;
+  questionActionLoading = false;
+  questionPage = 1;
+  questionPageSize = 5;
+  readonly questionPageSizeOptions = [5, 10, 20, 50, 100] as const;
+  private bankRequestId = 0;
 
   constructor(
     private questionService: QuestionService,
+    private questionCategoryService: QuestionCategoryService,
     private quizService: QuizService,
-    private router: Router,
     private toast: ToastService,
     private pdfExport: QuestionPdfExportService
   ) {}
 
   ngOnInit(): void {
-    this.loadQuestionBank();
+    this.loadBankCategories();
+    this.ensureValidQuestionPage();
   }
 
-  loadQuestionBank(): void {
-    this.bankLoading = true;
-    const params: any = { pageNumber: 1, pageSize: 100 };
-    if (this.browserSearch) params.search = this.browserSearch;
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['questions']) {
+      this.ensureValidQuestionPage();
+    }
+  }
 
-    this.questionService.getAll(params).subscribe({
-      next: (res: any) => {
+  async loadQuestionBank(): Promise<void> {
+    const requestId = ++this.bankRequestId;
+    this.bankLoading = true;
+    this.error = '';
+
+    try {
+      const params: any = {
+        pageNumber: this.bankPage,
+        pageSize: this.bankPageSize
+      };
+
+      const trimmedSearch = String(this.browserSearch || '').trim();
+      if (trimmedSearch) {
+        params.search = trimmedSearch;
+      }
+
+      if (this.browserCategoryId) {
+        params.categoryId = this.browserCategoryId;
+      }
+
+      const res = await firstValueFrom(this.questionService.getAll(params, { skipLoading: true }));
+      if (requestId !== this.bankRequestId) {
+        return;
+      }
+
+      this.bankQuestions = Array.isArray(res?.items) ? res.items : [];
+      this.bankTotalCount = Number(res?.totalCount ?? this.bankQuestions.length);
+    } catch (err: any) {
+      if (requestId !== this.bankRequestId) {
+        return;
+      }
+
+      this.bankQuestions = [];
+      this.bankTotalCount = 0;
+      this.toast.error(err?.error?.message || 'Failed to load question bank');
+    } finally {
+      if (requestId === this.bankRequestId) {
         this.bankLoading = false;
-        this.bankQuestions = res.items || [];
-      },
-      error: () => {
-        this.bankLoading = false;
+      }
+    }
+  }
+
+  loadBankCategories(): void {
+    if (this.bankCategories.length > 0) {
+      return;
+    }
+
+    this.questionCategoryService.getAll({ skipLoading: true }).subscribe({
+      next: (categories) => {
+        this.bankCategories = [...(categories || [])]
+          .sort((a, b) => a.name.localeCompare(b.name));
       }
     });
   }
 
+  clearQuestionBankFilters(): void {
+    this.browserSearch = '';
+    this.browserCategoryId = null;
+    this.bankPage = 1;
+    void this.loadQuestionBank();
+  }
+
+  applyQuestionBankFilters(): void {
+    this.bankPage = 1;
+    void this.loadQuestionBank();
+  }
+
   closeQuestionBrowser(): void {
+    this.bankRequestId++;
+    this.bankLoading = false;
     this.showQuestionBrowser = false;
     this.selectedBankQuestions.clear();
   }
@@ -858,12 +1037,33 @@ export class QuizQuestionsComponent implements OnInit {
     this.selectedBankQuestions.clear();
   }
 
+  get availableBankQuestionCount(): number {
+    return this.bankQuestions.filter((question) => !this.isQuestionLinked(question.id)).length;
+  }
+
+  get bankTotalPages(): number {
+    return Math.max(1, Math.ceil((this.bankTotalCount || 0) / this.bankPageSize));
+  }
+
+  get questionTotalPages(): number {
+    return Math.max(1, Math.ceil((this.questions?.length || 0) / this.questionPageSize));
+  }
+
+  get questionPageStartIndex(): number {
+    return (this.questionPage - 1) * this.questionPageSize;
+  }
+
+  get pagedQuestions(): any[] {
+    const start = this.questionPageStartIndex;
+    return (this.questions || []).slice(start, start + this.questionPageSize);
+  }
+
   isQuestionLinked(questionId: number): boolean {
     return this.questions.some((q: any) => Number(q.questionId) === Number(questionId));
   }
 
   addSelectedQuestions(saveAndClose: boolean = false): void {
-    if (this.selectedBankQuestions.size === 0) return;
+    if (this.selectedBankQuestions.size === 0 || this.questionActionLoading) return;
 
     const nextOrder = Math.max(...this.questions.map((q: any) => Number(q.order) || 0), 0) + 1;
     const items = Array.from(this.selectedBankQuestions).map((qId, index) => ({
@@ -873,36 +1073,39 @@ export class QuizQuestionsComponent implements OnInit {
       answerSeconds: null
     }));
 
-    this.quizService.addQuestions(this.quizId, items).subscribe({
-      next: () => {
+    this.questionActionLoading = true;
+    this.quizService.addQuestions(this.quizId, items, { skipLoading: true }).subscribe({
+      next: async () => {
         this.closeQuestionBrowser();
-        this.refreshQuestions();
+        await this.refreshQuestions(true);
         if (saveAndClose) {
           this.questionsChanged.emit();
         }
       },
       error: (err) => {
         this.error = err?.error?.message || 'Failed to add questions';
+        this.questionActionLoading = false;
+      },
+      complete: () => {
+        this.questionActionLoading = false;
       }
     });
   }
 
-  refreshQuestions(): void {
-    this.quizService.getById(this.quizId).subscribe({
-      next: (res) => {
-        this.questions = (res.questions || []).map((item: any, index: number) => ({
-          ...item,
-          order: Number(item?.order ?? index + 1),
-          answerSeconds: Number(item?.answerSeconds ?? item?.question?.answerSeconds ?? 30),
-          pointsOverride: item?.pointsOverride ?? null
-        }));
-      }
-    });
+  async refreshQuestions(skipLoading: boolean = false): Promise<void> {
+    const res = await firstValueFrom(this.quizService.getById(this.quizId, { skipLoading }));
+    this.questions = (res.questions || []).map((item: any, index: number) => ({
+      ...item,
+      order: Number(item?.order ?? index + 1),
+      answerSeconds: Number(item?.answerSeconds ?? item?.question?.answerSeconds ?? 30),
+      pointsOverride: item?.pointsOverride ?? null
+    }));
+    this.ensureValidQuestionPage();
   }
 
   removeQuestion(quizQuestionId: number): void {
     this.quizService.removeQuestion(this.quizId, quizQuestionId).subscribe({
-      next: () => this.refreshQuestions(),
+      next: () => void this.refreshQuestions(),
       error: (err) => this.error = err?.error?.message || 'Failed to remove question'
     });
   }
@@ -912,12 +1115,12 @@ export class QuizQuestionsComponent implements OnInit {
       questionId: Number(item.questionId),
       order: Number(item.order) || index + 1,
       pointsOverride: item.pointsOverride || null,
-      answerSeconds: Number(item.answerSeconds) || 30
+      answerSeconds: Number(item.answerSeconds) === 0 ? 0 : (Number(item.answerSeconds) || 30)
     }));
 
     this.quizService.addQuestions(this.quizId, payload).subscribe({
       next: () => {
-        this.refreshQuestions();
+        void this.refreshQuestions();
         this.toast.success('Settings saved');
       },
       error: (err) => this.error = err?.error?.message || 'Failed to save settings'
@@ -943,6 +1146,43 @@ export class QuizQuestionsComponent implements OnInit {
 
   choiceLabel(index: number): string {
     return String.fromCharCode(65 + Math.max(0, index));
+  }
+
+  onQuestionPageChange(page: number): void {
+    if (page === this.questionPage) {
+      return;
+    }
+
+    this.questionPage = page;
+  }
+
+  onQuestionPageSizeChange(pageSize: number): void {
+    if (pageSize === this.questionPageSize) {
+      return;
+    }
+
+    this.questionPageSize = pageSize;
+    this.questionPage = 1;
+    this.ensureValidQuestionPage();
+  }
+
+  onBankPageChange(page: number): void {
+    if (page === this.bankPage || this.bankLoading) {
+      return;
+    }
+
+    this.bankPage = page;
+    void this.loadQuestionBank();
+  }
+
+  onBankPageSizeChange(pageSize: number): void {
+    if (pageSize === this.bankPageSize || this.bankLoading) {
+      return;
+    }
+
+    this.bankPageSize = pageSize;
+    this.bankPage = 1;
+    void this.loadQuestionBank();
   }
 
   async exportTestPdf(): Promise<void> {
@@ -973,7 +1213,9 @@ export class QuizQuestionsComponent implements OnInit {
 
   openQuestionBrowser(): void {
     this.showQuestionBrowser = true;
-    this.loadQuestionBank();
+    this.bankPage = 1;
+    this.loadBankCategories();
+    void this.loadQuestionBank();
   }
 
   openRandomSelector(): void {
@@ -987,7 +1229,7 @@ export class QuizQuestionsComponent implements OnInit {
 
   loadCategoriesWithCounts(): void {
     this.randomLoading = true;
-    this.questionService.getCategoriesWithCounts().subscribe({
+    this.questionService.getCategoriesWithCounts({ skipLoading: true }).subscribe({
       next: (res: any) => {
         this.randomLoading = false;
         this.categoriesWithCounts = (res || []).map((c: any) => ({
@@ -1009,13 +1251,16 @@ export class QuizQuestionsComponent implements OnInit {
   }
 
   addRandomQuestions(saveAndClose: boolean = false): void {
+    if (this.questionActionLoading) return;
+
     const selections = this.categoriesWithCounts
       .filter(c => c.selectedCount > 0 && c.selectedCount <= c.questionCount)
       .map(c => ({ categoryId: c.id, count: c.selectedCount }));
 
     if (selections.length === 0) return;
 
-    this.questionService.getRandomByCategory({ categorySelections: selections }).subscribe({
+    this.questionActionLoading = true;
+    this.questionService.getRandomByCategory({ categorySelections: selections }, { skipLoading: true }).subscribe({
       next: (results: any) => {
         const allQuestionIds: number[] = [];
         let currentOrder = Math.max(...this.questions.map((q: any) => Number(q.order) || 0), 0);
@@ -1032,6 +1277,7 @@ export class QuizQuestionsComponent implements OnInit {
         if (allQuestionIds.length === 0) {
           this.toast.info('Selected questions are already in this test');
           this.closeRandomSelector();
+          this.questionActionLoading = false;
           return;
         }
 
@@ -1042,10 +1288,10 @@ export class QuizQuestionsComponent implements OnInit {
           answerSeconds: null
         }));
 
-        this.quizService.addQuestions(this.quizId, items).subscribe({
-          next: () => {
+        this.quizService.addQuestions(this.quizId, items, { skipLoading: true }).subscribe({
+          next: async () => {
             this.closeRandomSelector();
-            this.refreshQuestions();
+            await this.refreshQuestions(true);
             this.toast.success(`Added ${items.length} random questions`);
             if (saveAndClose) {
               this.questionsChanged.emit();
@@ -1053,12 +1299,29 @@ export class QuizQuestionsComponent implements OnInit {
           },
           error: (err) => {
             this.error = err?.error?.message || 'Failed to add random questions';
+            this.questionActionLoading = false;
+          },
+          complete: () => {
+            this.questionActionLoading = false;
           }
         });
       },
       error: (err) => {
         this.error = err?.error?.message || 'Failed to fetch random questions';
+        this.questionActionLoading = false;
       }
     });
+  }
+
+  private ensureValidQuestionPage(): void {
+    if (this.questionPage < 1) {
+      this.questionPage = 1;
+      return;
+    }
+
+    const totalPages = this.questionTotalPages;
+    if (this.questionPage > totalPages) {
+      this.questionPage = totalPages;
+    }
   }
 }

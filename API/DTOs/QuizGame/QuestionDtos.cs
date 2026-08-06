@@ -69,6 +69,10 @@ public class QuestionResponseDto
     public int? QuizId { get; set; }
     public string? QuizTitle { get; set; }
     public List<QuestionChoiceDto> Choices { get; set; } = new();
+    public PlayerSavedAnswerDto? SavedAnswer { get; set; }
+    public DateTime? PlayerTestStartedAtUtc { get; set; }
+    public DateTime? PlayerTestEndsAtUtc { get; set; }
+    public int? PlayerTestDurationMinutes { get; set; }
 }
 
 public class QuestionQueryDto : PagedRequestDto
@@ -103,4 +107,12 @@ public class BulkQuestionCategoryDto
 {
     public List<int> Ids { get; set; } = new();
     public string CategoryName { get; set; } = string.Empty;
+}
+
+public class BulkQuestionSettingsDto
+{
+    public List<int> Ids { get; set; } = new();
+    public int? Points { get; set; }
+    /// <summary>Zero means unlimited.</summary>
+    public int? AnswerSeconds { get; set; }
 }

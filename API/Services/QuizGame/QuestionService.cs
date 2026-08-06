@@ -246,7 +246,14 @@ public class QuestionService : IQuestionService
             dbQuery = dbQuery.Where(x =>
                 x.Title.ToLower().Contains(search) ||
                 x.Text.ToLower().Contains(search) ||
-                (x.Explanation != null && x.Explanation.ToLower().Contains(search)));
+                (x.Explanation != null && x.Explanation.ToLower().Contains(search)) ||
+                x.Choices.Any(choice => !choice.IsDeleted && choice.ChoiceText.ToLower().Contains(search)) ||
+                x.QuestionCategoryAssignments.Any(link =>
+                    !link.IsDeleted &&
+                    link.Category != null &&
+                    !link.Category.IsDeleted &&
+                    link.Category.Name.ToLower().Contains(search)) ||
+                (x.Category != null && !x.Category.IsDeleted && x.Category.Name.ToLower().Contains(search)));
         }
 
         if (query.Type.HasValue)
@@ -267,7 +274,7 @@ public class QuestionService : IQuestionService
 
         if (query.CategoryId.HasValue)
         {
-            dbQuery = dbQuery.Where(x => x.QuestionCategoryAssignments.Any(link => link.CategoryId == query.CategoryId.Value));
+            dbQuery = dbQuery.Where(x => x.QuestionCategoryAssignments.Any(link => !link.IsDeleted && link.CategoryId == query.CategoryId.Value));
         }
 
         var total = await dbQuery.CountAsync();
@@ -407,9 +414,9 @@ public class QuestionService : IQuestionService
             throw new ArgumentException("Points must be greater than 0.");
         }
 
-        if (dto.AnswerSeconds < 5 || dto.AnswerSeconds > 300)
+        if (dto.AnswerSeconds != 0 && (dto.AnswerSeconds < 5 || dto.AnswerSeconds > 300))
         {
-            throw new ArgumentException("Answer time must be between 5 and 300 seconds.");
+            throw new ArgumentException("Answer time must be 0 (unlimited) or between 5 and 300 seconds.");
         }
 
         foreach (var choice in dto.Choices)
@@ -853,6 +860,47 @@ public class QuestionService : IQuestionService
         return changedQuestionIds.Count;
     }
 
+    public async Task<int> UpdateSettingsAsync(IEnumerable<int> questionIds, int? points, int? answerSeconds)
+    {
+        var ids = questionIds.Where(id => id > 0).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        if (points.HasValue && points.Value <= 0)
+        {
+            throw new ArgumentException("Points must be greater than 0.");
+        }
+
+        if (answerSeconds.HasValue &&
+            answerSeconds.Value != 0 &&
+            (answerSeconds.Value < 5 || answerSeconds.Value > 300))
+        {
+            throw new ArgumentException("Answer time must be 0 (unlimited) or between 5 and 300 seconds.");
+        }
+
+        var questions = await _context.Set<Question>()
+            .Where(question => ids.Contains(question.Id) && !question.IsDeleted)
+            .ToListAsync();
+
+        foreach (var question in questions)
+        {
+            if (points.HasValue)
+            {
+                question.Points = points.Value;
+            }
+
+            if (answerSeconds.HasValue)
+            {
+                question.AnswerSeconds = answerSeconds.Value;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return questions.Count;
+    }
+
     public async Task<int> ImportFromExcelAsync(IFormFile file)
     {
         var questions = new List<Question>();
@@ -861,6 +909,10 @@ public class QuestionService : IQuestionService
         using var stream = file.OpenReadStream();
         using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
         var worksheet = workbook.Worksheet(1);
+        var explanationColumn = GetColumnIndexByHeader(worksheet, "Explanation");
+        var answerSecondsColumn = GetColumnIndexByHeader(worksheet, "Answer Seconds");
+        var selectionModeColumn = GetColumnIndexByHeader(worksheet, "Selection Mode");
+        var choiceEColumn = GetColumnIndexByHeader(worksheet, "Choice E");
         var rows = worksheet.RowsUsed().Skip(1);
 
         foreach (var row in rows)
@@ -899,10 +951,11 @@ public class QuestionService : IQuestionService
                 Title = title,
                 Text = row.Cell(3).GetString(),
                 Type = (QuestionType)GetQuestionType(row.Cell(4).GetString()),
-                SelectionMode = QuestionSelectionMode.Single,
-                Difficulty = row.Cell(5).GetString(),
+                SelectionMode = ParseSelectionMode(selectionModeColumn.HasValue ? row.Cell(selectionModeColumn.Value).GetString() : null),
+                Difficulty = NormalizeOptionalCellText(row.Cell(5)),
+                Explanation = NormalizeOptionalCellText(explanationColumn.HasValue ? row.Cell(explanationColumn.Value) : null),
                 Points = GetCellValueOrDefault(row.Cell(6), 1),
-                AnswerSeconds = 30,
+                AnswerSeconds = GetCellValueOrDefault(answerSecondsColumn.HasValue ? row.Cell(answerSecondsColumn.Value) : null, 30),
                 CategoryId = questionCategoryIds.Count > 0 ? questionCategoryIds[0] : null,
                 QuestionCategoryAssignments = questionCategoryIds
                     .Select(categoryId => new QuestionCategoryAssignment
@@ -915,22 +968,29 @@ public class QuestionService : IQuestionService
                 CreatedAt = DateTime.UtcNow
             };
 
-            var correctIndex = row.Cell(7).GetString().Trim().ToUpper();
-            var choiceTexts = new[] {
+            var correctIndexes = row.Cell(7).GetString()
+                .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(value => value.ToUpperInvariant())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var choiceTexts = new List<string> {
                 row.Cell(8).GetString(),
                 row.Cell(9).GetString(),
                 row.Cell(10).GetString(),
                 row.Cell(11).GetString()
             };
+            if (choiceEColumn.HasValue)
+            {
+                choiceTexts.Add(row.Cell(choiceEColumn.Value).GetString());
+            }
 
-            for (int i = 0; i < choiceTexts.Length; i++)
+            for (int i = 0; i < choiceTexts.Count; i++)
             {
                 if (!string.IsNullOrWhiteSpace(choiceTexts[i]))
                 {
                     question.Choices.Add(new QuestionChoice
                     {
                         ChoiceText = choiceTexts[i],
-                        IsCorrect = correctIndex == ((char)('A' + i)).ToString(),
+                        IsCorrect = correctIndexes.Contains(((char)('A' + i)).ToString()),
                         Order = i + 1,
                         IsDeleted = false
                     });
@@ -951,13 +1011,57 @@ public class QuestionService : IQuestionService
         return questions.Count;
     }
 
-    private static int GetCellValueOrDefault(ClosedXML.Excel.IXLCell cell, int defaultValue)
+    private static int GetCellValueOrDefault(ClosedXML.Excel.IXLCell? cell, int defaultValue)
     {
+        if (cell is null)
+            return defaultValue;
         if (cell.Value.IsNumber)
             return (int)cell.Value.GetNumber();
         if (cell.Value.IsText && int.TryParse(cell.Value.GetText(), out int result))
             return result;
         return defaultValue;
+    }
+
+    private static QuestionSelectionMode ParseSelectionMode(string? value)
+    {
+        if (Enum.TryParse<QuestionSelectionMode>(value, true, out var parsed))
+        {
+            return parsed;
+        }
+
+        return string.Equals(value?.Trim(), "Multiple Answers", StringComparison.OrdinalIgnoreCase)
+            ? QuestionSelectionMode.Multiple
+            : QuestionSelectionMode.Single;
+    }
+
+    private static int? GetColumnIndexByHeader(ClosedXML.Excel.IXLWorksheet worksheet, string headerName)
+    {
+        var headerRow = worksheet.FirstRowUsed();
+        if (headerRow is null)
+        {
+            return null;
+        }
+
+        foreach (var cell in headerRow.CellsUsed())
+        {
+            if (string.Equals(cell.GetString().Trim(), headerName, StringComparison.OrdinalIgnoreCase))
+            {
+                return cell.Address.ColumnNumber;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeOptionalCellText(ClosedXML.Excel.IXLCell? cell)
+    {
+        if (cell is null)
+        {
+            return null;
+        }
+
+        var value = cell.GetString().Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     public async Task<Stream> ExportToExcelAsync(string? search = null, int? type = null, string? difficulty = null)
@@ -998,8 +1102,12 @@ public class QuestionService : IQuestionService
         worksheet.Cell(1, 9).Value = "Choice B";
         worksheet.Cell(1, 10).Value = "Choice C";
         worksheet.Cell(1, 11).Value = "Choice D";
+        worksheet.Cell(1, 12).Value = "Explanation";
+        worksheet.Cell(1, 13).Value = "Answer Seconds";
+        worksheet.Cell(1, 14).Value = "Selection Mode";
+        worksheet.Cell(1, 15).Value = "Choice E";
 
-        var headerRange = worksheet.Range(1, 1, 1, 11);
+        var headerRange = worksheet.Range(1, 1, 1, 15);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.LightGray;
 
@@ -1016,14 +1124,23 @@ public class QuestionService : IQuestionService
             worksheet.Cell(row, 5).Value = q.Difficulty ?? "";
             worksheet.Cell(row, 6).Value = q.Points;
 
-            var correctChoice = q.Choices.OrderBy(c => c.Order).FirstOrDefault(c => c.IsCorrect);
-            worksheet.Cell(row, 7).Value = correctChoice != null ? GetChoiceLetter(correctChoice.Order) : "";
+            var correctAnswers = q.Choices
+                .Where(choice => choice.IsCorrect)
+                .OrderBy(choice => choice.Order)
+                .Select(choice => GetChoiceLetter(choice.Order))
+                .Where(value => !string.IsNullOrWhiteSpace(value));
+            worksheet.Cell(row, 7).Value = string.Join(",", correctAnswers);
 
             var orderedChoices = q.Choices.OrderBy(c => c.Order).ToList();
             for (int i = 0; i < 4 && i < orderedChoices.Count; i++)
             {
                 worksheet.Cell(row, 8 + i).Value = orderedChoices[i].ChoiceText;
             }
+
+            worksheet.Cell(row, 12).Value = q.Explanation ?? "";
+            worksheet.Cell(row, 13).Value = q.AnswerSeconds;
+            worksheet.Cell(row, 14).Value = q.SelectionMode.ToString();
+            worksheet.Cell(row, 15).Value = orderedChoices.Count > 4 ? orderedChoices[4].ChoiceText : "";
 
             row++;
         }
@@ -1067,6 +1184,7 @@ public class QuestionService : IQuestionService
             2 => "B",
             3 => "C",
             4 => "D",
+            5 => "E",
             _ => ""
         };
     }
@@ -1096,8 +1214,12 @@ public class QuestionService : IQuestionService
         worksheet.Cell(1, 9).Value = "Choice B";
         worksheet.Cell(1, 10).Value = "Choice C";
         worksheet.Cell(1, 11).Value = "Choice D";
+        worksheet.Cell(1, 12).Value = "Explanation";
+        worksheet.Cell(1, 13).Value = "Answer Seconds";
+        worksheet.Cell(1, 14).Value = "Selection Mode";
+        worksheet.Cell(1, 15).Value = "Choice E";
 
-        var headerRange = worksheet.Range(1, 1, 1, 11);
+        var headerRange = worksheet.Range(1, 1, 1, 15);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.LightGray;
 
@@ -1114,14 +1236,23 @@ public class QuestionService : IQuestionService
             worksheet.Cell(row, 5).Value = q.Difficulty ?? "";
             worksheet.Cell(row, 6).Value = q.Points;
 
-            var correctChoice = q.Choices.OrderBy(c => c.Order).FirstOrDefault(c => c.IsCorrect);
-            worksheet.Cell(row, 7).Value = correctChoice != null ? GetChoiceLetter(correctChoice.Order) : "";
+            var correctAnswers = q.Choices
+                .Where(choice => choice.IsCorrect)
+                .OrderBy(choice => choice.Order)
+                .Select(choice => GetChoiceLetter(choice.Order))
+                .Where(value => !string.IsNullOrWhiteSpace(value));
+            worksheet.Cell(row, 7).Value = string.Join(",", correctAnswers);
 
             var orderedChoices = q.Choices.OrderBy(c => c.Order).ToList();
             for (int i = 0; i < 4 && i < orderedChoices.Count; i++)
             {
                 worksheet.Cell(row, 8 + i).Value = orderedChoices[i].ChoiceText;
             }
+
+            worksheet.Cell(row, 12).Value = q.Explanation ?? "";
+            worksheet.Cell(row, 13).Value = q.AnswerSeconds;
+            worksheet.Cell(row, 14).Value = q.SelectionMode.ToString();
+            worksheet.Cell(row, 15).Value = orderedChoices.Count > 4 ? orderedChoices[4].ChoiceText : "";
 
             row++;
         }

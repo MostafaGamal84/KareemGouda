@@ -57,7 +57,8 @@ type EditableChoice = {
 
         <div class="field">
           <label for="question-answer-seconds">Answer time (sec)</label>
-          <input id="question-answer-seconds" name="questionAnswerSeconds" type="number" [(ngModel)]="model.answerSeconds" min="5" max="300" />
+          <input id="question-answer-seconds" name="questionAnswerSeconds" type="number" [(ngModel)]="model.answerSeconds" min="0" max="300" />
+          <small>Use 0 for unlimited time.</small>
         </div>
 
         <div class="field">
@@ -761,7 +762,9 @@ export class QuestionFormComponent implements OnInit {
   save(): void {
     this.loading = true;
     this.error = '';
-    this.model.answerSeconds = this.normalizeBetween(this.model.answerSeconds, 5, 300, 30);
+    this.model.answerSeconds = Number(this.model.answerSeconds) === 0
+      ? 0
+      : this.normalizeBetween(this.model.answerSeconds, 5, 300, 30);
     this.model.points = this.normalizeBetween(this.model.points, 1, 100000, 100);
     this.model.text = this.normalizeRichText(this.model.text);
     this.model.explanation = String(this.model.explanation || '').trim();

@@ -85,6 +85,7 @@ public class PlayerService : IPlayerService
             }
         }
         var normalizedName = dto.DisplayName.Trim();
+        var autoStartedTimedTest = false;
         var existingParticipant = await _context.Set<GameParticipant>()
             .FirstOrDefaultAsync(x =>
                 x.GameSessionId == session.Id &&
@@ -100,6 +101,13 @@ public class PlayerService : IPlayerService
             if (!canRejoin)
             {
                 throw new ArgumentException("Display name is already used in this session.");
+            }
+
+            if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+                existingParticipant.TestEndsAt.HasValue &&
+                existingParticipant.TestEndsAt.Value <= DateTime.UtcNow)
+            {
+                throw new ArgumentException("Your test time has ended.");
             }
 
             participant = existingParticipant;
@@ -138,7 +146,35 @@ public class PlayerService : IPlayerService
             _context.Set<GameParticipant>().Add(participant);
         }
 
+        if (!requiresApproval &&
+            session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+            session.Status == GameSessionStatus.Waiting)
+        {
+            var now = DateTime.UtcNow;
+            session.Status = GameSessionStatus.Live;
+            session.StartedAt = now;
+            session.EndedAt = null;
+            autoStartedTimedTest = true;
+        }
+
+        if (!requiresApproval &&
+            session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+            session.Status == GameSessionStatus.Live)
+        {
+            StartTimedTestParticipantWindow(participant, session, DateTime.UtcNow);
+        }
+
         await _context.SaveChangesAsync();
+
+        if (autoStartedTimedTest)
+        {
+            await _hubContext.Clients.Group(GetGroupName(session.Id)).SendAsync("sessionStarted", new
+            {
+                sessionId = session.Id,
+                status = GameSessionStatus.Live,
+                questionFlowMode = SessionQuestionFlowMode.TimedByTest
+            });
+        }
 
         if (requiresApproval)
         {
@@ -176,7 +212,8 @@ public class PlayerService : IPlayerService
             SessionId = session.Id,
             DisplayName = participant.DisplayName,
             JoinStatus = participant.JoinStatus,
-            RequiresApproval = requiresApproval
+            RequiresApproval = requiresApproval,
+            TestEndsAtUtc = participant.TestEndsAt
         };
     }
 
@@ -211,7 +248,11 @@ public class PlayerService : IPlayerService
         };
     }
 
-    public async Task<QuestionResponseDto?> GetCurrentQuestionAsync(int sessionId)
+    public async Task<QuestionResponseDto?> GetCurrentQuestionAsync(
+        int sessionId,
+        int? questionIndex = null,
+        int? participantId = null,
+        string? participantToken = null)
     {
         var session = await _context.Set<GameSession>()
             .AsNoTracking()
@@ -222,11 +263,50 @@ public class PlayerService : IPlayerService
             return null;
         }
 
+        var resolvedQuestionIndex = session.CurrentQuestionIndex;
+        GameParticipant? participant = null;
+        if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest)
+        {
+            if (session.Status != GameSessionStatus.Live ||
+                !questionIndex.HasValue ||
+                questionIndex.Value < 0 ||
+                !participantId.HasValue ||
+                string.IsNullOrWhiteSpace(participantToken))
+            {
+                return null;
+            }
+
+            participant = await _context.Set<GameParticipant>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.Id == participantId.Value &&
+                    x.GameSessionId == sessionId &&
+                    !x.IsDeleted &&
+                    x.JoinStatus == ParticipantJoinStatus.Approved &&
+                    x.ParticipantToken == participantToken);
+            if (participant is null)
+            {
+                return null;
+            }
+
+            if (participant.TestEndsAt.HasValue && participant.TestEndsAt.Value <= DateTime.UtcNow)
+            {
+                return null;
+            }
+
+            if (participant.TestCompletedAt.HasValue)
+            {
+                return null;
+            }
+
+            resolvedQuestionIndex = questionIndex.Value;
+        }
+
         var qq = await _context.Set<QuizQuestion>()
             .AsNoTracking()
             .Where(x => x.QuizId == session.QuizId && !x.IsDeleted)
             .OrderBy(x => x.Order)
-            .Skip(session.CurrentQuestionIndex)
+            .Skip(resolvedQuestionIndex)
             .Take(1)
             .Include(x => x.Question)
             .ThenInclude(x => x.Choices.Where(c => !c.IsDeleted))
@@ -255,7 +335,7 @@ public class PlayerService : IPlayerService
         var primaryCategoryName = categories.FirstOrDefault(category => category.Id == primaryCategoryId)?.Name
             ?? categories.FirstOrDefault()?.Name;
 
-        return new QuestionResponseDto
+        var response = new QuestionResponseDto
         {
             Id = qq.Question.Id,
             Title = qq.Question.Title,
@@ -288,6 +368,32 @@ public class PlayerService : IPlayerService
                     };
                 }).ToList()
         };
+
+        if (participant is not null)
+        {
+            response.PlayerTestStartedAtUtc = participant.TestStartedAt;
+            response.PlayerTestEndsAtUtc = participant.TestEndsAt;
+            response.PlayerTestDurationMinutes = session.DurationMinutes;
+            var savedAnswer = await _context.Set<PlayerAnswer>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.GameSessionId == sessionId &&
+                    x.ParticipantId == participant.Id &&
+                    x.QuestionId == qq.QuestionId &&
+                    !x.IsDeleted);
+            if (savedAnswer is not null)
+            {
+                response.SavedAnswer = new PlayerSavedAnswerDto
+                {
+                    QuestionId = savedAnswer.QuestionId,
+                    SelectedChoiceId = savedAnswer.SelectedChoiceId,
+                    SelectedChoiceIds = DeserializeSelectedChoiceIds(savedAnswer.SelectedChoiceIdsJson),
+                    TextAnswer = savedAnswer.TextAnswer
+                };
+            }
+        }
+
+        return response;
     }
 
     public async Task<PlayerAnswerSubmitResponseDto> SubmitAnswerAsync(int sessionId, SubmitPlayerAnswerDto dto)
@@ -307,13 +413,35 @@ public class PlayerService : IPlayerService
             return Rejected("Participant is not allowed to answer.");
         }
 
-        var currentQuestion = await _context.Set<QuizQuestion>()
+        if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+            !string.Equals(participant.ParticipantToken, dto.ParticipantToken, StringComparison.Ordinal))
+        {
+            return Rejected("Participant token is invalid.");
+        }
+
+        if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+            participant.TestCompletedAt.HasValue)
+        {
+            return Rejected("Test has already been completed.");
+        }
+
+        if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+            participant.TestEndsAt.HasValue &&
+            participant.TestEndsAt.Value <= DateTime.UtcNow)
+        {
+            return Rejected("Test time has ended.");
+        }
+
+        var quizQuestionQuery = _context.Set<QuizQuestion>()
             .AsNoTracking()
-            .Where(x => x.QuizId == session.QuizId && !x.IsDeleted)
-            .OrderBy(x => x.Order)
-            .Skip(session.CurrentQuestionIndex)
-            .Take(1)
-            .FirstOrDefaultAsync();
+            .Where(x => x.QuizId == session.QuizId && !x.IsDeleted);
+        var currentQuestion = session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest
+            ? await quizQuestionQuery.FirstOrDefaultAsync(x => x.QuestionId == dto.QuestionId)
+            : await quizQuestionQuery
+                .OrderBy(x => x.Order)
+                .Skip(session.CurrentQuestionIndex)
+                .Take(1)
+                .FirstOrDefaultAsync();
         if (currentQuestion is null || currentQuestion.QuestionId != dto.QuestionId)
         {
             return Rejected("Question mismatch.");
@@ -326,13 +454,13 @@ public class PlayerService : IPlayerService
             return Rejected("Question time has ended.");
         }
 
-        var alreadyAnswered = await _context.Set<PlayerAnswer>().AnyAsync(x =>
+        var existingAnswer = await _context.Set<PlayerAnswer>().FirstOrDefaultAsync(x =>
             x.GameSessionId == sessionId &&
             x.ParticipantId == dto.ParticipantId &&
             x.QuestionId == dto.QuestionId &&
             !x.IsDeleted);
 
-        if (alreadyAnswered)
+        if (existingAnswer is not null && session.QuestionFlowMode != SessionQuestionFlowMode.TimedByTest)
         {
             return Rejected("Answer already submitted.");
         }
@@ -364,56 +492,86 @@ public class PlayerService : IPlayerService
                 .ToList();
         var correctChoiceId = correctChoiceIds.Count == 1 ? correctChoiceIds[0] : (int?)null;
 
-        var answer = new PlayerAnswer
+        var answer = existingAnswer ?? new PlayerAnswer
         {
             GameSessionId = sessionId,
             ParticipantId = dto.ParticipantId,
             QuestionId = dto.QuestionId,
-            SelectedChoiceId = normalizedChoiceIds.Count == 1 ? normalizedChoiceIds[0] : null,
-            SelectedChoiceIdsJson = SerializeSelectedChoiceIds(normalizedChoiceIds),
-            TextAnswer = question.Type == QuestionType.ShortAnswer ? dto.TextAnswer?.Trim() : null,
-            IsCorrect = isCorrect,
-            ScoreAwarded = score,
-            ResponseTimeMs = dto.ResponseTimeMs,
-            AnsweredAt = DateTime.UtcNow,
             IsDeleted = false
         };
+        var previousScore = existingAnswer?.ScoreAwarded ?? 0;
+        answer.SelectedChoiceId = normalizedChoiceIds.Count == 1 ? normalizedChoiceIds[0] : null;
+        answer.SelectedChoiceIdsJson = SerializeSelectedChoiceIds(normalizedChoiceIds);
+        answer.TextAnswer = question.Type == QuestionType.ShortAnswer ? dto.TextAnswer?.Trim() : null;
+        answer.IsCorrect = isCorrect;
+        answer.ScoreAwarded = score;
+        answer.ResponseTimeMs = dto.ResponseTimeMs;
+        answer.AnsweredAt = DateTime.UtcNow;
 
-        _context.Set<PlayerAnswer>().Add(answer);
-        participant.TotalScore += score;
+        if (existingAnswer is null)
+        {
+            _context.Set<PlayerAnswer>().Add(answer);
+        }
+
+        participant.TotalScore += score - previousScore;
 
         await _context.SaveChangesAsync();
 
+        var resultsDeferred = session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest;
         await _hubContext.Clients.Group(GetGroupName(sessionId)).SendAsync("answerSubmitted", new
         {
             sessionId,
             participantId = participant.Id,
             questionId = question.Id,
-            isCorrect
+            isCorrect = resultsDeferred ? (bool?)null : isCorrect,
+            resultsDeferred
         });
 
-        var leaderboard = await GetLeaderboardAsync(sessionId);
-        await _hubContext.Clients.Group(GetGroupName(sessionId)).SendAsync("leaderboardUpdated", leaderboard);
+        if (!resultsDeferred)
+        {
+            var leaderboard = await GetLeaderboardAsync(sessionId);
+            await _hubContext.Clients.Group(GetGroupName(sessionId)).SendAsync("leaderboardUpdated", leaderboard);
+        }
 
         return new PlayerAnswerSubmitResponseDto
         {
             Accepted = true,
-            IsCorrect = isCorrect,
+            IsCorrect = !resultsDeferred && isCorrect,
             SelectedChoiceId = normalizedChoiceIds.Count == 1 ? normalizedChoiceIds[0] : null,
             SelectedChoiceIds = normalizedChoiceIds,
-            CorrectChoiceId = correctChoiceId,
-            CorrectChoiceIds = correctChoiceIds,
-            Message = "Answer submitted"
+            CorrectChoiceId = resultsDeferred ? null : correctChoiceId,
+            CorrectChoiceIds = resultsDeferred ? new List<int>() : correctChoiceIds,
+            ResultsDeferred = resultsDeferred,
+            Message = resultsDeferred ? "Answer saved" : "Answer submitted"
         };
     }
 
     public async Task<List<LeaderboardItemDto>> GetLeaderboardAsync(int sessionId)
     {
+        var deferResults = await _context.Set<GameSession>()
+            .AsNoTracking()
+            .Where(x => x.Id == sessionId && !x.IsDeleted)
+            .Select(x =>
+                x.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest &&
+                x.Status != GameSessionStatus.Ended)
+            .FirstOrDefaultAsync();
+
         var participants = await _context.Set<GameParticipant>()
             .Where(x => x.GameSessionId == sessionId && !x.IsDeleted && x.JoinStatus == ParticipantJoinStatus.Approved)
-            .OrderByDescending(x => x.TotalScore)
+            .OrderByDescending(x => deferResults ? 0 : x.TotalScore)
             .ThenBy(x => x.JoinedAt)
             .ToListAsync();
+
+        if (deferResults)
+        {
+            return participants.Select(x => new LeaderboardItemDto
+            {
+                ParticipantId = x.Id,
+                DisplayName = x.DisplayName,
+                TotalScore = 0,
+                Rank = 0
+            }).ToList();
+        }
 
         var rank = 1;
         foreach (var p in participants)
@@ -458,6 +616,33 @@ public class PlayerService : IPlayerService
             JoinStatus = participant.JoinStatus,
             DecisionNote = participant.DecisionNote
         };
+    }
+
+    public async Task<bool> CompleteTimedTestAsync(int sessionId, LeaveSessionDto dto)
+    {
+        var session = await _context.Set<GameSession>()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == sessionId && !x.IsDeleted);
+        if (session is null || session.QuestionFlowMode != SessionQuestionFlowMode.TimedByTest)
+        {
+            return false;
+        }
+
+        var participant = await _context.Set<GameParticipant>()
+            .FirstOrDefaultAsync(x =>
+                x.Id == dto.ParticipantId &&
+                x.GameSessionId == sessionId &&
+                !x.IsDeleted &&
+                x.JoinStatus == ParticipantJoinStatus.Approved &&
+                x.ParticipantToken == dto.ParticipantToken);
+        if (participant is null)
+        {
+            return false;
+        }
+
+        participant.TestCompletedAt ??= DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return true;
     }
 
     public async Task<bool> LeaveSessionAsync(int sessionId, LeaveSessionDto dto)
@@ -688,6 +873,51 @@ public class PlayerService : IPlayerService
     private static string? SerializeSelectedChoiceIds(List<int> selectedChoiceIds)
     {
         return selectedChoiceIds.Count == 0 ? null : JsonSerializer.Serialize(selectedChoiceIds);
+    }
+
+    private static List<int> DeserializeSelectedChoiceIds(string? selectedChoiceIdsJson)
+    {
+        if (string.IsNullOrWhiteSpace(selectedChoiceIdsJson))
+        {
+            return new List<int>();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<int>>(selectedChoiceIdsJson)?
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList() ?? new List<int>();
+        }
+        catch (JsonException)
+        {
+            return new List<int>();
+        }
+    }
+
+    private static void StartTimedTestParticipantWindow(
+        GameParticipant participant,
+        GameSession session,
+        DateTime startedAtUtc)
+    {
+        if (session.QuestionFlowMode != SessionQuestionFlowMode.TimedByTest ||
+            participant.TestStartedAt.HasValue)
+        {
+            return;
+        }
+
+        participant.TestStartedAt = startedAtUtc;
+        if (session.DurationMinutes.HasValue && session.DurationMinutes.Value > 0)
+        {
+            var participantEnd = startedAtUtc.AddMinutes(session.DurationMinutes.Value);
+            participant.TestEndsAt = session.ScheduledEndAt.HasValue && session.ScheduledEndAt.Value < participantEnd
+                ? session.ScheduledEndAt
+                : participantEnd;
+        }
+        else
+        {
+            participant.TestEndsAt = session.ScheduledEndAt;
+        }
     }
 
     private string GetQuestionImageUrl(int questionId)

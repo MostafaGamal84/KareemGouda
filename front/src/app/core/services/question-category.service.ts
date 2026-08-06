@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -17,8 +17,10 @@ export class QuestionCategoryService {
 
   constructor(private http: HttpClient) {}
 
-  getAll(): Observable<QuestionCategory[]> {
-    return this.http.get<QuestionCategory[]>(this.baseUrl);
+  getAll(options?: { skipLoading?: boolean }): Observable<QuestionCategory[]> {
+    return this.http.get<QuestionCategory[]>(this.baseUrl, {
+      headers: this.buildHeaders(options?.skipLoading)
+    });
   }
 
   getById(id: number): Observable<QuestionCategory> {
@@ -35,5 +37,9 @@ export class QuestionCategoryService {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
+  }
+
+  private buildHeaders(skipLoading?: boolean): HttpHeaders | undefined {
+    return skipLoading ? new HttpHeaders({ 'X-Skip-Loading': 'true' }) : undefined;
   }
 }

@@ -991,11 +991,14 @@ export class GameSessionControlComponent implements OnInit, OnDestroy {
       this.session?.QuestionFlowMode ??
       1
     );
-    return flow === 2;
+    return flow === 2 || flow === 3;
   }
 
   flowModeLabel(v: any): string {
-    return Number(v) === 2 ? 'Timed by question' : 'Host controlled';
+    const mode = Number(v);
+    if (mode === 2) return 'Timed by question';
+    if (mode === 3) return 'Timed by test';
+    return 'Host controlled';
   }
 
   accessLabel(v: any): string {
@@ -1021,8 +1024,6 @@ export class GameSessionControlComponent implements OnInit, OnDestroy {
     return 'On demand';
   }
 }
-
-
 
 
 

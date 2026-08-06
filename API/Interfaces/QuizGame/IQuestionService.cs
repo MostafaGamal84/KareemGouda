@@ -18,6 +18,7 @@ public interface IQuestionService
     Task<QuestionResponseDto?> DuplicateAsync(int questionId, int userId);
     Task<int> AddCategoryToQuestionsAsync(IEnumerable<int> questionIds, string categoryName);
     Task<int> RemoveCategoryFromQuestionsAsync(IEnumerable<int> questionIds, string? categoryName = null);
+    Task<int> UpdateSettingsAsync(IEnumerable<int> questionIds, int? points, int? answerSeconds);
     Task<int> ImportFromExcelAsync(IFormFile file);
     Task<Stream> ExportToExcelAsync(string? search = null, int? type = null, string? difficulty = null);
     Task<Stream> ExportSelectedToExcelAsync(List<int> ids);

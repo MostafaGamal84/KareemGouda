@@ -40,8 +40,12 @@ public class GameSessionService : IGameSessionService
         var scheduledStartAt = ToUtc(dto.ScheduledStartAt);
         var scheduledEndAt = ToUtc(dto.ScheduledEndAt);
         var durationMinutes = NormalizeDurationMinutes(dto.DurationMinutes ?? (quiz.DurationMinutes > 0 ? quiz.DurationMinutes : null));
+        var flowMode = NormalizeFlowMode(dto.QuestionFlowMode);
 
-        if (scheduledStartAt.HasValue && durationMinutes.HasValue && !scheduledEndAt.HasValue)
+        if (flowMode != SessionQuestionFlowMode.TimedByTest &&
+            scheduledStartAt.HasValue &&
+            durationMinutes.HasValue &&
+            !scheduledEndAt.HasValue)
         {
             scheduledEndAt = scheduledStartAt.Value.AddMinutes(durationMinutes.Value);
         }
@@ -86,7 +90,7 @@ public class GameSessionService : IGameSessionService
             JoinLink = $"{baseUrl.TrimEnd('/')}/player/join/{joinCode}",
             Status = scheduledStartAt.HasValue ? GameSessionStatus.Draft : GameSessionStatus.Waiting,
             AccessType = accessType,
-            QuestionFlowMode = NormalizeFlowMode(dto.QuestionFlowMode),
+            QuestionFlowMode = flowMode,
             ScheduledStartAt = scheduledStartAt,
             ScheduledEndAt = scheduledEndAt,
             DurationMinutes = durationMinutes,
@@ -159,6 +163,7 @@ public class GameSessionService : IGameSessionService
         session.Status = GameSessionStatus.Live;
         session.StartedAt = now;
         session.EndedAt = null;
+        StartTimedTestParticipantWindows(session, now);
         await ConfigureTimerForCurrentQuestionAsync(session, now);
 
         await _context.SaveChangesAsync();
@@ -251,6 +256,11 @@ public class GameSessionService : IGameSessionService
             return null;
         }
 
+        if (session.QuestionFlowMode == SessionQuestionFlowMode.TimedByTest)
+        {
+            throw new ArgumentException("Timed-by-test sessions use student-controlled question navigation.");
+        }
+
         var totalQuestions = await _context.Set<QuizQuestion>().CountAsync(x => x.QuizId == session.QuizId && !x.IsDeleted);
         if (totalQuestions == 0)
         {
@@ -310,6 +320,9 @@ public class GameSessionService : IGameSessionService
             return null;
         }
 
+        var totalQuestions = await _context.Set<QuizQuestion>()
+            .AsNoTracking()
+            .CountAsync(x => x.QuizId == session.QuizId && !x.IsDeleted);
         var currentQuestion = await GetQuestionByIndexInternalAsync(session, session.CurrentQuestionIndex);
         var nextQuestion = await GetQuestionByIndexInternalAsync(session, session.CurrentQuestionIndex + 1);
 
@@ -326,10 +339,12 @@ public class GameSessionService : IGameSessionService
             ScheduledEndAt = ToUtc(session.ScheduledEndAt),
             DurationMinutes = session.DurationMinutes,
             CurrentQuestionIndex = session.CurrentQuestionIndex,
+            TotalQuestions = totalQuestions,
             CurrentQuestion = currentQuestion,
             NextQuestion = nextQuestion,
             CurrentQuestionEndsAtUtc = ToUtc(session.CurrentQuestionEndsAt),
             CurrentQuestionDurationSeconds = currentQuestion?.AnswerSeconds,
+            SessionEndsAtUtc = null,
             ParticipantsCount = session.Participants.Count(IsApprovedParticipant)
         };
     }
@@ -373,6 +388,10 @@ public class GameSessionService : IGameSessionService
         participant.DecisionByHostId = hostId;
         participant.DecisionNote = null;
         participant.JoinedAt = DateTime.UtcNow;
+
+        var session = await _context.Set<GameSession>()
+            .FirstAsync(x => x.Id == sessionId && !x.IsDeleted);
+        StartTimedTestParticipantWindow(participant, session, participant.JoinedAt);
 
         await _context.SaveChangesAsync();
 
@@ -782,9 +801,10 @@ public class GameSessionService : IGameSessionService
             .Take(1)
             .FirstOrDefaultAsync();
 
+        if (seconds == 0) return 0;
         if (seconds < 5) return 5;
         if (seconds > 300) return 300;
-        return seconds == 0 ? 30 : seconds;
+        return seconds;
     }
 
     private static void ClearQuestionTimer(GameSession session)
@@ -796,9 +816,12 @@ public class GameSessionService : IGameSessionService
 
     private static SessionQuestionFlowMode NormalizeFlowMode(SessionQuestionFlowMode mode)
     {
-        return mode == SessionQuestionFlowMode.TimedByQuestion
-            ? SessionQuestionFlowMode.TimedByQuestion
-            : SessionQuestionFlowMode.HostControlled;
+        return mode switch
+        {
+            SessionQuestionFlowMode.TimedByQuestion => SessionQuestionFlowMode.TimedByQuestion,
+            SessionQuestionFlowMode.TimedByTest => SessionQuestionFlowMode.TimedByTest,
+            _ => SessionQuestionFlowMode.HostControlled
+        };
     }
 
     private static SessionAccessType NormalizeAccessType(SessionAccessType accessType)
@@ -852,12 +875,51 @@ public class GameSessionService : IGameSessionService
             session.Status = GameSessionStatus.Live;
             session.StartedAt = now;
             session.EndedAt = null;
+            StartTimedTestParticipantWindows(session, now);
             await ConfigureTimerForCurrentQuestionAsync(session, now);
             await _context.SaveChangesAsync();
 
             var state = await GetStateAsync(sessionId);
             await _hubContext.Clients.Group(GetGroupName(sessionId)).SendAsync("sessionStarted", state);
             await BroadcastSessionUpdatedAsync(sessionId);
+        }
+    }
+
+    private static void StartTimedTestParticipantWindows(GameSession session, DateTime startedAtUtc)
+    {
+        if (session.QuestionFlowMode != SessionQuestionFlowMode.TimedByTest)
+        {
+            return;
+        }
+
+        foreach (var participant in session.Participants.Where(IsApprovedParticipant))
+        {
+            StartTimedTestParticipantWindow(participant, session, startedAtUtc);
+        }
+    }
+
+    private static void StartTimedTestParticipantWindow(
+        GameParticipant participant,
+        GameSession session,
+        DateTime startedAtUtc)
+    {
+        if (session.QuestionFlowMode != SessionQuestionFlowMode.TimedByTest ||
+            participant.TestStartedAt.HasValue)
+        {
+            return;
+        }
+
+        participant.TestStartedAt = startedAtUtc;
+        if (session.DurationMinutes.HasValue && session.DurationMinutes.Value > 0)
+        {
+            var participantEnd = startedAtUtc.AddMinutes(session.DurationMinutes.Value);
+            participant.TestEndsAt = session.ScheduledEndAt.HasValue && session.ScheduledEndAt.Value < participantEnd
+                ? session.ScheduledEndAt
+                : participantEnd;
+        }
+        else
+        {
+            participant.TestEndsAt = session.ScheduledEndAt;
         }
     }
 

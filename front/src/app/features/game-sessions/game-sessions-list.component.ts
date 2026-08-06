@@ -137,6 +137,7 @@ import { PaginationControlsComponent } from '../../shared/pagination-controls.co
                 <select id="create-flow" [(ngModel)]="tempQuestionFlowMode">
                   <option [ngValue]="1">Host controlled</option>
                   <option [ngValue]="2">Timed by question</option>
+                  <option [ngValue]="3">Timed by test</option>
                 </select>
               </div>
               <div class="field">

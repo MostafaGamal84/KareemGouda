@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 import { map } from 'rxjs';
 
@@ -27,7 +27,11 @@ export class GameSessionService {
   resume(id: number) { return this.http.post(`${this.base}/${id}/resume`, {}); }
   end(id: number) { return this.http.post(`${this.base}/${id}/end`, {}); }
   delete(id: number) { return this.http.delete(`${this.base}/${id}`); }
-  state(id: number) { return this.http.get<any>(`${this.base}/${id}/state`); }
+  state(id: number, options?: { skipLoading?: boolean }) {
+    return this.http.get<any>(`${this.base}/${id}/state`, {
+      headers: this.buildHeaders(options?.skipLoading)
+    });
+  }
   nextQuestion(id: number) { return this.http.post(`${this.base}/${id}/next-question`, {}); }
   leaderboard(id: number) { return this.http.get<any[]>(`${this.base}/${id}/leaderboard`); }
   joinRequests(id: number) { return this.http.get<any[]>(`${this.base}/${id}/join-requests`); }
@@ -77,5 +81,9 @@ export class GameSessionService {
 
     const apiRoot = environment.apiBaseUrl.replace(/\/api\/?$/i, '');
     return raw.startsWith('/') ? `${apiRoot}${raw}` : `${apiRoot}/${raw}`;
+  }
+
+  private buildHeaders(skipLoading?: boolean): HttpHeaders | undefined {
+    return skipLoading ? new HttpHeaders({ 'X-Skip-Loading': 'true' }) : undefined;
   }
 }

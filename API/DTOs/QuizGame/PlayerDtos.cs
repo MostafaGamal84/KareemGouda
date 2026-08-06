@@ -18,6 +18,7 @@ public class PlayerJoinResponseDto
     public string DisplayName { get; set; } = string.Empty;
     public ParticipantJoinStatus JoinStatus { get; set; }
     public bool RequiresApproval { get; set; }
+    public DateTime? TestEndsAtUtc { get; set; }
 }
 
 public class WaitingRoomPlayerDto
@@ -38,6 +39,7 @@ public class WaitingRoomDto
 public class SubmitPlayerAnswerDto
 {
     public int ParticipantId { get; set; }
+    public string? ParticipantToken { get; set; }
     public int QuestionId { get; set; }
     public int? SelectedChoiceId { get; set; }
     public List<int> SelectedChoiceIds { get; set; } = new();
@@ -53,7 +55,16 @@ public class PlayerAnswerSubmitResponseDto
     public List<int> SelectedChoiceIds { get; set; } = new();
     public int? CorrectChoiceId { get; set; }
     public List<int> CorrectChoiceIds { get; set; } = new();
+    public bool ResultsDeferred { get; set; }
     public string? Message { get; set; }
+}
+
+public class PlayerSavedAnswerDto
+{
+    public int QuestionId { get; set; }
+    public int? SelectedChoiceId { get; set; }
+    public List<int> SelectedChoiceIds { get; set; } = new();
+    public string? TextAnswer { get; set; }
 }
 
 public class LeaveSessionDto

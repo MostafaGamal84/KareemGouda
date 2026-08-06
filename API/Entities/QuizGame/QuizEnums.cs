@@ -31,7 +31,8 @@ public enum GameSessionStatus
 public enum SessionQuestionFlowMode
 {
     HostControlled = 1,
-    TimedByQuestion = 2
+    TimedByQuestion = 2,
+    TimedByTest = 3
 }
 
 public enum SessionAccessType

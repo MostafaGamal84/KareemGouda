@@ -226,6 +226,35 @@ public class QuestionsController : ControllerBase
     }
 
     [Authorize(Roles = "Admin,Host")]
+    [HttpPost("bulk-update-settings")]
+    public async Task<IActionResult> BulkUpdateSettings([FromBody] BulkQuestionSettingsDto dto)
+    {
+        if (dto.Ids is null || dto.Ids.Count == 0)
+        {
+            return BadRequest(new { message = "No IDs provided" });
+        }
+
+        if (!dto.Points.HasValue && !dto.AnswerSeconds.HasValue)
+        {
+            return BadRequest(new { message = "Points or answer time is required" });
+        }
+
+        try
+        {
+            var updated = await _service.UpdateSettingsAsync(dto.Ids, dto.Points, dto.AnswerSeconds);
+            return Ok(new
+            {
+                message = $"Updated {updated} questions",
+                updatedCount = updated
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [Authorize(Roles = "Admin,Host")]
     [HttpPost("import")]
     public async Task<IActionResult> ImportQuestions([FromForm] IFormFile? file)
     {

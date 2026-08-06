@@ -39,6 +39,9 @@ public class GameParticipant : BaseEntity
     public DateTime? ApprovedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
     public DateTime? LeftAt { get; set; }
+    public DateTime? TestStartedAt { get; set; }
+    public DateTime? TestEndsAt { get; set; }
+    public DateTime? TestCompletedAt { get; set; }
     public int? DecisionByHostId { get; set; }
     public string? DecisionNote { get; set; }
     public int TotalScore { get; set; }

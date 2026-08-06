@@ -341,7 +341,10 @@ export class ResultsDashboardComponent implements OnInit {
   }
 
   flowModeLabel(value: number): string {
-    return Number(value) === 2 ? 'Timed By Question' : 'Host Controlled';
+    const mode = Number(value);
+    if (mode === 2) return 'Timed By Question';
+    if (mode === 3) return 'Timed By Test';
+    return 'Host Controlled';
   }
 
   successRate(item: any): number {

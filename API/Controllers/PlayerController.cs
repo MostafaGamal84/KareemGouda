@@ -52,9 +52,17 @@ public class PlayerController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("session/{sessionId:int}/current-question")]
-    public async Task<IActionResult> CurrentQuestion(int sessionId)
+    public async Task<IActionResult> CurrentQuestion(
+        int sessionId,
+        [FromQuery] int? questionIndex,
+        [FromQuery] int? participantId,
+        [FromQuery] string? token)
     {
-        var question = await _playerService.GetCurrentQuestionAsync(sessionId);
+        var question = await _playerService.GetCurrentQuestionAsync(
+            sessionId,
+            questionIndex,
+            participantId,
+            token);
         return question is null ? NotFound(new { message = "No active question" }) : Ok(question);
     }
 
@@ -97,5 +105,15 @@ public class PlayerController : ControllerBase
     {
         var ok = await _playerService.LeaveSessionAsync(sessionId, dto);
         return ok ? Ok(new { message = "Left session successfully" }) : BadRequest(new { message = "Unable to leave session" });
+    }
+
+    [AllowAnonymous]
+    [HttpPost("session/{sessionId:int}/complete-test")]
+    public async Task<IActionResult> CompleteTest(int sessionId, [FromBody] LeaveSessionDto dto)
+    {
+        var ok = await _playerService.CompleteTimedTestAsync(sessionId, dto);
+        return ok
+            ? Ok(new { message = "Test completed successfully" })
+            : BadRequest(new { message = "Unable to complete test" });
     }
 }
