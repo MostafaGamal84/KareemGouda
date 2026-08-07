@@ -9,11 +9,12 @@ import { ToastService } from '../../core/services/toast.service';
 import { PagedResult, Question } from '../../core/models';
 import { PaginationControlsComponent } from '../../shared/pagination-controls.component';
 import { QuestionPdfExportService } from '../../core/services/question-pdf-export.service';
+import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
 import { concatMap, firstValueFrom, from } from 'rxjs';
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, PaginationControlsComponent],
+  imports: [CommonModule, FormsModule, RouterLink, PaginationControlsComponent, SafeRichTextPipe],
   template: `
     <div class="question-bank-page">
       <div class="page-header">
@@ -330,7 +331,7 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
               <div class="row-content">
                 <div class="row-main">
                   <div class="row-title">{{ q.title }}</div>
-                  <div class="row-text">{{ getFullQuestionText(q.text) }}</div>
+                  <div class="row-text rich-text-content" [innerHTML]="q.text | safeRichText"></div>
                   
                   @if (q.choices && q.choices.length > 0) {
                     <div class="row-choices">

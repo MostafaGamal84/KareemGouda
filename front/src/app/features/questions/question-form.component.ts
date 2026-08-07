@@ -8,6 +8,7 @@ import { QuizService } from '../../core/services/quiz.service';
 import { QuestionCategoryService, QuestionCategory } from '../../core/services/question-category.service';
 import { ToastService } from '../../core/services/toast.service';
 import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
+import { MultiSelectComponent, MultiSelectOption } from '../../shared/multi-select.component';
 import { forkJoin, of, switchMap } from 'rxjs';
 
 type QuestionMode = 'single' | 'multiple' | 'truefalse' | 'short';
@@ -23,7 +24,7 @@ type EditableChoice = {
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule, EditorModule, SafeRichTextPipe],
+  imports: [CommonModule, FormsModule, EditorModule, SafeRichTextPipe, MultiSelectComponent],
   template: `
     <div class="card question-form-card">
       <div class="form-head">
@@ -67,45 +68,13 @@ type EditableChoice = {
         </div>
 
         <div class="field">
-          <label for="question-category-input">Categories (optional)</label>
-          <div class="category-selector">
-            <input
-              id="question-category-input"
-              name="questionCategoryInput"
-              [(ngModel)]="categoryInput"
-              placeholder="Type category then press Enter or comma"
-              list="category-suggestions"
-              (keydown.enter)="addCategoryFromInput($event)"
-              (keydown)="handleCategorySeparators($event)"
-              (blur)="addCategoryOnBlur()" />
-            <datalist id="category-suggestions">
-              @for (cat of categories; track cat.id) {
-                <option [value]="cat.name"></option>
-              }
-            </datalist>
-            <button type="button" class="secondary btn-sm" (click)="addCategoryFromInput()">Add</button>
-          </div>
-          @if (selectedCategories.length) {
-            <div class="suggestion-chips">
-              @for (cat of selectedCategories; track cat.id) {
-                <button type="button" class="chip chip-selected" (click)="removeCategory(cat.id)">
-                  {{ cat.name }} <span>x</span>
-                </button>
-              }
-            </div>
-          }
-          @if (suggestedCategoryList.length) {
-            <div class="category-suggestions">
-              <span class="suggestion-label">Or choose existing:</span>
-              <div class="suggestion-chips">
-                @for (cat of suggestedCategoryList; track cat.id) {
-                  <button type="button" class="chip" (click)="selectCategory(cat)">
-                    {{ cat.name }}
-                  </button>
-                }
-              </div>
-            </div>
-          }
+          <label>Categories (optional)</label>
+          <app-multi-select
+            [options]="categoryOptions"
+            [initialValues]="model.categoryIds"
+            placeholder="Select categories"
+            searchPlaceholder="Search categories..."
+            (selectionChange)="onCategorySelectionChange($event)" />
         </div>
 
         <div class="field span-2">
@@ -519,6 +488,7 @@ export class QuestionFormComponent implements OnInit {
   imagePreviewUrl = '';
   targetQuizId?: number;
   categories: QuestionCategory[] = [];
+  categoryOptions: MultiSelectOption[] = [];
   selectedCategories: QuestionCategory[] = [];
   private nextChoiceKey = 1;
   private selectedImageFile: File | null = null;
@@ -584,6 +554,7 @@ export class QuestionFormComponent implements OnInit {
     this.categoryService.getAll().subscribe({
       next: (cats) => {
         this.categories = cats;
+        this.categoryOptions = cats.map(category => ({ value: Number(category.id), label: category.name }));
         this.syncSelectedCategoriesWithCatalog();
       },
       error: () => {}
@@ -624,6 +595,11 @@ export class QuestionFormComponent implements OnInit {
       : [];
     this.model.categoryIds = this.selectedCategories.map((category) => category.id);
     this.categoryInput = '';
+  }
+
+  onCategorySelectionChange(categoryIds: any[]): void {
+    this.model.categoryIds = categoryIds.map(Number).filter((id: number) => id > 0);
+    this.selectedCategories = this.categories.filter(category => this.model.categoryIds.includes(Number(category.id)));
   }
 
   selectCategory(cat: QuestionCategory): void {

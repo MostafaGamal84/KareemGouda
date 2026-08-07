@@ -63,14 +63,19 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
               <div class="progress-fill" [style.width.%]="questionProgressPercent()"></div>
             </div>
 
-            <div class="question-map" aria-hidden="true">
+            <div class="question-map" aria-label="Choose a question">
               @for (item of questionNumbers; track item) {
-                <span
+                <button
+                  type="button"
                   class="question-chip"
                   [class.question-chip-current]="item - 1 === currentQuestionIndex"
-                  [class.question-chip-past]="item - 1 < currentQuestionIndex">
+                  [class.question-chip-past]="!isTimedTestFlow() && item - 1 < currentQuestionIndex"
+                  [class.question-chip-saved]="isTimedTestQuestionAnswered(item - 1)"
+                  [class.question-chip-skipped]="isTimedTestQuestionSkipped(item - 1)"
+                  [disabled]="!isTimedTestFlow() || isSubmittingAnswer"
+                  (click)="goToTimedTestQuestion(item - 1)">
                   {{ item }}
-                </span>
+                </button>
               }
             </div>
           </section>
@@ -412,14 +417,33 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
       font-size: 0.84rem;
       font-weight: 700;
       user-select: none;
-      pointer-events: none;
       flex-shrink: 0;
+      padding: 0;
+      box-shadow: none;
+      cursor: pointer;
+    }
+
+    .question-chip:disabled {
+      cursor: default;
+      opacity: 1;
     }
 
     .question-chip.question-chip-past {
       background: var(--success-tint);
       border-color: var(--success-border);
       color: var(--success);
+    }
+
+    .question-chip.question-chip-saved {
+      background: var(--success-tint);
+      border-color: var(--success-border);
+      color: var(--success);
+    }
+
+    .question-chip.question-chip-skipped {
+      background: var(--warning-tint);
+      border-color: var(--warning-border);
+      color: var(--warning);
     }
 
     .question-chip.question-chip-current {
@@ -767,6 +791,8 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   submittedIsCorrect: boolean | null = null;
   correctChoiceIds: number[] = [];
   timedTestSavedQuestionIds = new Set<number>();
+  timedTestAnsweredIndexes = new Set<number>();
+  timedTestSkippedIndexes = new Set<number>();
   isPaused = false;
   isSessionEnded = false;
   isHostVoiceLive = false;
@@ -963,6 +989,9 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
         if (resultsDeferred) {
           this.timedTestSavedQuestionIds.add(Number(this.question.id));
           this.timedTestSavedQuestionIds = new Set(this.timedTestSavedQuestionIds);
+          this.timedTestAnsweredIndexes.add(this.currentQuestionIndex);
+          this.timedTestAnsweredIndexes = new Set(this.timedTestAnsweredIndexes);
+          this.timedTestSkippedIndexes.delete(this.currentQuestionIndex);
           this.submittedIsCorrect = null;
           this.correctChoiceIds = [];
           this.message = 'Answer saved. You can return and update it before time ends.';
@@ -1028,15 +1057,32 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
   }
 
   goToTimedTestQuestion(index: number): void {
-    if (!this.isTimedTestFlow() || index < 0 || index >= this.totalQuestions || this.isSubmittingAnswer) {
+    if (
+      !this.isTimedTestFlow()
+      || index < 0
+      || index >= this.totalQuestions
+      || index === this.currentQuestionIndex
+      || this.isSubmittingAnswer
+    ) {
       return;
     }
 
+    this.markTimedTestQuestionsSkipped(index);
     this.loadTimedTestQuestion(index);
   }
 
   isTimedTestAnswerSaved(): boolean {
     return Boolean(this.question) && this.timedTestSavedQuestionIds.has(Number(this.question.id));
+  }
+
+  isTimedTestQuestionAnswered(index: number): boolean {
+    return this.isTimedTestFlow() && this.timedTestAnsweredIndexes.has(index);
+  }
+
+  isTimedTestQuestionSkipped(index: number): boolean {
+    return this.isTimedTestFlow()
+      && this.timedTestSkippedIndexes.has(index)
+      && !this.timedTestAnsweredIndexes.has(index);
   }
 
   hasUnlimitedTime(): boolean {
@@ -1132,6 +1178,9 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
           this.textAnswer = String(saved?.textAnswer ?? saved?.TextAnswer ?? '');
           this.timedTestSavedQuestionIds.add(Number(this.question.id));
           this.timedTestSavedQuestionIds = new Set(this.timedTestSavedQuestionIds);
+          this.timedTestAnsweredIndexes.add(index);
+          this.timedTestAnsweredIndexes = new Set(this.timedTestAnsweredIndexes);
+          this.timedTestSkippedIndexes.delete(index);
         }
 
         this.cdr.detectChanges();
@@ -1171,6 +1220,17 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
     }
 
     return Math.max(0, Math.min(100, Math.round(((this.currentQuestionIndex + 1) / this.totalQuestions) * 100)));
+  }
+
+  private markTimedTestQuestionsSkipped(targetIndex: number): void {
+    const start = Math.max(0, this.currentQuestionIndex);
+    const end = targetIndex > start ? targetIndex : start + 1;
+    for (let index = start; index < end; index++) {
+      if (!this.timedTestAnsweredIndexes.has(index)) {
+        this.timedTestSkippedIndexes.add(index);
+      }
+    }
+    this.timedTestSkippedIndexes = new Set(this.timedTestSkippedIndexes);
   }
 
   refreshLeaderboard(): void {

@@ -72,6 +72,7 @@ import { environment } from '../../../environments/environment';
                   class="question-chip"
                   [class.question-chip-current]="item.questionIndex === currentQuestionIndex"
                   [class.question-chip-saved]="isQuestionAnswered(item.questionId)"
+                  [class.question-chip-draft]="isQuestionSkipped(item.questionId)"
                   (click)="goToQuestion(item.questionIndex)">
                   {{ item.questionIndex + 1 }}
                 </button>
@@ -443,6 +444,13 @@ import { environment } from '../../../environments/environment';
       color: var(--warning);
     }
 
+    .question-chip.question-chip-current.question-chip-draft {
+      background: var(--primary-gradient);
+      color: #ffffff;
+      border-color: var(--input-focus-border);
+      box-shadow: inset 0 0 0 1px var(--warning-border);
+    }
+
     .inline-message {
       margin-top: 14px;
     }
@@ -799,6 +807,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
   private questionsCache: any[] = [];
   private draftChoices = new Map<number, number[]>();
   private draftTexts = new Map<number, string>();
+  private skippedQuestionIds = new Set<number>();
   private timerInterval: any = null;
   remainingSeconds = 0;
 
@@ -859,6 +868,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.markSkippedQuestionsBeforeMove(index);
     this.moveWithAutoSave(() => this.setCurrentQuestion(index));
   }
 
@@ -867,6 +877,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.markSkippedQuestionsBeforeMove(this.currentQuestionIndex - 1);
     this.moveWithAutoSave(() => this.setCurrentQuestion(this.currentQuestionIndex - 1));
   }
 
@@ -876,6 +887,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.markSkippedQuestionsBeforeMove(this.currentQuestionIndex + 1);
     this.moveWithAutoSave(() => this.setCurrentQuestion(this.currentQuestionIndex + 1));
   }
 
@@ -939,6 +951,10 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
 
     const item = this.overview?.questions?.find((entry: any) => Number(entry.questionId) === questionId);
     return !!item?.isAnswered;
+  }
+
+  isQuestionSkipped(questionId: number): boolean {
+    return this.skippedQuestionIds.has(Number(questionId)) && !this.isQuestionAnswered(Number(questionId));
   }
 
   currentDisplayNumber(): number {
@@ -1215,6 +1231,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
     const normalized = (choiceIds || []).map((value) => Number(value)).filter((value) => value > 0);
     if (normalized.length) {
       this.draftChoices.set(questionId, Array.from(new Set(normalized)));
+      this.skippedQuestionIds.delete(questionId);
     } else {
       this.draftChoices.delete(questionId);
     }
@@ -1226,6 +1243,7 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
     const nextValue = String(value ?? '');
     if (nextValue.trim()) {
       this.draftTexts.set(questionId, nextValue);
+      this.skippedQuestionIds.delete(questionId);
     } else {
       this.draftTexts.delete(questionId);
     }
@@ -1279,6 +1297,18 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
     }
 
     return this.selectedChoiceIds.length > 0;
+  }
+
+  private markSkippedQuestionsBeforeMove(targetIndex: number): void {
+    const start = this.currentQuestionIndex;
+    const end = targetIndex > start ? targetIndex : start + 1;
+    for (let index = start; index < end; index++) {
+      const item = this.overview?.questions?.find((entry: any) => Number(entry.questionIndex) === index);
+      const questionId = Number(item?.questionId ?? this.questionsCache[index]?.question?.id ?? 0);
+      if (questionId > 0 && !this.isQuestionAnswered(questionId)) {
+        this.skippedQuestionIds.add(questionId);
+      }
+    }
   }
 
   isChoiceSelected(choiceId: number): boolean {

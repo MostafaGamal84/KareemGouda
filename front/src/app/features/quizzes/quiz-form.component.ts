@@ -7,10 +7,11 @@ import { ToastService } from '../../core/services/toast.service';
 import { QuizQuestionsComponent } from './quiz-questions.component';
 import { QuizAccessComponent } from './quiz-access.component';
 import { of, switchMap } from 'rxjs';
+import { MultiSelectComponent, MultiSelectOption } from '../../shared/multi-select.component';
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule, QuizQuestionsComponent, QuizAccessComponent],
+  imports: [CommonModule, FormsModule, QuizQuestionsComponent, QuizAccessComponent, MultiSelectComponent],
   template: `
     <div class="card test-form-card">
       <div class="form-head">
@@ -59,47 +60,18 @@ import { of, switchMap } from 'rxjs';
               <textarea id="test-description" name="testDescription" rows="3" [(ngModel)]="model.description" placeholder="What this test covers"></textarea>
             </div>
 
-            <div class="field">
-              <label for="test-category-input">Categories *</label>
-              <div class="category-entry">
-                <input
-                  id="test-category-input"
-                  name="testCategoryInput"
-                  [(ngModel)]="categoryInput"
-                  placeholder="Type category and press Enter"
-                  (keydown.enter)="addCategoryFromInput($event)" />
-                <button type="button" class="secondary" (click)="addCategoryFromInput()">Add</button>
-              </div>
-            </div>
-
-            <div class="field">
-              <label>&nbsp;</label>
-              <button type="button" class="secondary" (click)="showCategorySuggestions = !showCategorySuggestions">
-                {{ showCategorySuggestions ? 'Hide' : 'Show' }} Existing Categories
-              </button>
+            <div class="field span-2">
+              <label>Categories *</label>
+              <app-multi-select
+                [options]="categoryOptions"
+                [initialValues]="model.categories"
+                placeholder="Select categories"
+                searchPlaceholder="Search categories..."
+                [allowCustom]="true"
+                (selectionChange)="onCategorySelectionChange($event)" />
             </div>
           </div>
 
-          @if (model.categories.length) {
-            <div class="category-chip-grid">
-              @for (category of model.categories; track category) {
-                <button type="button" class="chip chip-selected" (click)="removeCategory(category)">
-                  {{ category }} <span>×</span>
-                </button>
-              }
-            </div>
-          }
-
-          @if (showCategorySuggestions && suggestedCategoryList.length) {
-            <div class="suggestion-block">
-              <span class="suggestion-label">Existing categories</span>
-              <div class="category-chip-grid">
-                @for (category of suggestedCategoryList; track category) {
-                  <button type="button" class="chip" (click)="applySuggestedCategory(category)">{{ category }}</button>
-                }
-              </div>
-            </div>
-          }
         </div>
       }
 
@@ -507,6 +479,7 @@ export class QuizFormComponent implements OnInit {
   categoryInput = '';
   coverPreviewUrl = '';
   existingCategories: string[] = [];
+  categoryOptions: MultiSelectOption[] = [];
   activeTab = 'questions';
   questions: any[] = [];
   currentStep = 1;
@@ -652,6 +625,10 @@ export class QuizFormComponent implements OnInit {
     this.model.categories = [...this.model.categories, category];
   }
 
+  onCategorySelectionChange(categories: any[]): void {
+    this.model.categories = categories.map(value => String(value)).filter(Boolean);
+  }
+
   get suggestedCategoryList(): string[] {
     return this.existingCategories.filter((category) =>
       !this.model.categories.some((item: string) => item.toLowerCase() === category.toLowerCase())
@@ -692,6 +669,7 @@ export class QuizFormComponent implements OnInit {
     this.service.getCategories().subscribe({
       next: (items) => {
         this.existingCategories = items.map((item) => item.name).filter(Boolean);
+        this.categoryOptions = this.existingCategories.map(category => ({ value: category, label: category }));
       },
       error: () => {}
     });

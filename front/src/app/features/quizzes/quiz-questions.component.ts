@@ -209,6 +209,9 @@ interface CategoryWithCount {
                   </div>
                   <div class="bank-question-content">
                     <strong>{{ q.title }}</strong>
+                    @if (q.text) {
+                      <div class="bank-question-text rich-text-content" [innerHTML]="q.text | safeRichText"></div>
+                    }
                     <span class="bank-meta">{{ getTypeName(q.type) }} | {{ q.points }} pts</span>
                     @if ((q.categories || []).length) {
                       <span class="bank-meta">{{ categoryNames(q) }}</span>
@@ -764,6 +767,14 @@ interface CategoryWithCount {
     .bank-question-content strong {
       font-size: 0.95rem;
       color: var(--text);
+    }
+
+    .bank-question-text {
+      width: 100%;
+      margin: 6px 0;
+      color: var(--text);
+      line-height: 1.65;
+      overflow-wrap: anywhere;
     }
 
     .bank-meta { font-size: 0.8rem; color: var(--muted); }
