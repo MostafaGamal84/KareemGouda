@@ -102,11 +102,27 @@ public class QuestionCategoryService : IQuestionCategoryService
     {
         var category = await _context.QuestionCategories
             .Where(x => !x.IsDeleted && x.Id == id)
+            .Include(x => x.QuestionCategoryAssignments.Where(link => !link.IsDeleted))
             .FirstOrDefaultAsync();
 
         if (category == null) return false;
 
         category.IsDeleted = true;
+
+        foreach (var assignment in category.QuestionCategoryAssignments)
+        {
+            assignment.IsDeleted = true;
+        }
+
+        var primaryQuestions = await _context.Questions
+            .Where(question => !question.IsDeleted && question.CategoryId == id)
+            .ToListAsync();
+
+        foreach (var question in primaryQuestions)
+        {
+            question.CategoryId = null;
+        }
+
         await _context.SaveChangesAsync();
 
         return true;

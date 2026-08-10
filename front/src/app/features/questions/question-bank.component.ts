@@ -34,6 +34,7 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
           <button type="button" class="secondary" [disabled]="importing" (click)="questionImportInput.click()">
             {{ importing ? 'Importing...' : 'Import Excel' }}
           </button>
+          <button type="button" class="secondary" (click)="openCategoryManager()">Manage Categories</button>
           <a routerLink="/questions/new"><button type="button">Create Question</button></a>
         </div>
       </div>
@@ -422,6 +423,53 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
 
       @if (error) { <div class="alert">{{ error }}</div> }
     </div>
+
+    @if (showCategoryManager) {
+      <div class="modal-overlay" (click)="closeCategoryManager()">
+        <div class="modal-content category-manager-modal" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <div>
+              <h3>Manage Categories</h3>
+              <p class="category-manager-hint">Create a category or remove one from the question bank.</p>
+            </div>
+            <button type="button" class="close-btn" (click)="closeCategoryManager()">&times;</button>
+          </div>
+
+          <div class="category-create-row">
+            <input
+              type="text"
+              [(ngModel)]="newCategoryName"
+              placeholder="New category name"
+              maxlength="100"
+              [disabled]="categorySaving"
+              (keydown.enter)="createCategory()" />
+            <button type="button" (click)="createCategory()" [disabled]="categorySaving || !newCategoryName.trim()">
+              {{ categorySaving ? 'Adding...' : 'Add' }}
+            </button>
+          </div>
+
+          <div class="category-manager-list">
+            @for (category of categories; track category.id) {
+              <div class="category-manager-item">
+                <div>
+                  <strong>{{ category.name }}</strong>
+                  <small>{{ category.questionsCount || 0 }} question(s)</small>
+                </div>
+                <button
+                  type="button"
+                  class="secondary btn-danger btn-sm"
+                  (click)="deleteCategory(category)"
+                  [disabled]="deletingCategoryId === category.id">
+                  {{ deletingCategoryId === category.id ? 'Deleting...' : 'Delete' }}
+                </button>
+              </div>
+            } @empty {
+              <p class="category-manager-empty">No categories yet. Add the first one above.</p>
+            }
+          </div>
+        </div>
+      </div>
+    }
 
     @if (showAssignModal) {
       <div class="modal-overlay" (click)="closeAssignModal()">
@@ -1270,6 +1318,38 @@ import { concatMap, firstValueFrom, from } from 'rxjs';
     }
 
     .modal-header h3 { margin: 0; font-size: 1.1rem; }
+    .category-manager-modal { max-width: 560px; }
+    .category-manager-hint { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
+    .category-create-row { display: flex; gap: 8px; margin-bottom: 18px; }
+    .category-create-row input {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--input-bg);
+      color: var(--text);
+    }
+    .category-manager-list {
+      display: grid;
+      gap: 8px;
+      max-height: min(430px, 55vh);
+      overflow-y: auto;
+    }
+    .category-manager-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+    }
+    .category-manager-item > div { display: grid; gap: 3px; min-width: 0; }
+    .category-manager-item strong { overflow-wrap: anywhere; }
+    .category-manager-item small { color: var(--muted); }
+    .category-manager-empty { margin: 10px 0; text-align: center; color: var(--muted); }
     .close-btn {
       background: none;
       border: none;
@@ -1377,6 +1457,10 @@ export class QuestionBankComponent implements OnInit {
   selectedQuestions = new Set<number>();
   allSelected = false;
   showAssignModal = false;
+  showCategoryManager = false;
+  newCategoryName = '';
+  categorySaving = false;
+  deletingCategoryId: number | null = null;
   selectedQuizId = 0;
   availableQuizzes: any[] = [];
 
@@ -1432,6 +1516,72 @@ export class QuestionBankComponent implements OnInit {
     this.categoryService.getAll().subscribe({
       next: (cats) => this.categories = cats,
       error: () => {}
+    });
+  }
+
+  openCategoryManager(): void {
+    this.newCategoryName = '';
+    this.showCategoryManager = true;
+    this.loadCategories();
+  }
+
+  closeCategoryManager(): void {
+    if (this.categorySaving || this.deletingCategoryId !== null) return;
+    this.showCategoryManager = false;
+    this.newCategoryName = '';
+  }
+
+  createCategory(): void {
+    const name = this.newCategoryName.trim();
+    if (!name || this.categorySaving) return;
+
+    if (this.categories.some((category) => category.name.trim().toLowerCase() === name.toLowerCase())) {
+      this.toast.show('This category already exists', 'error');
+      return;
+    }
+
+    this.categorySaving = true;
+    this.categoryService.create({ name }).subscribe({
+      next: (category) => {
+        this.categorySaving = false;
+        this.newCategoryName = '';
+        this.categories = [...this.categories, category].sort((a, b) => a.name.localeCompare(b.name));
+        this.toast.show('Category added successfully', 'success');
+      },
+      error: (err) => {
+        this.categorySaving = false;
+        this.toast.show(err?.error?.message || 'Failed to add category', 'error');
+      }
+    });
+  }
+
+  deleteCategory(category: QuestionCategory): void {
+    if (this.deletingCategoryId !== null) return;
+
+    const usage = category.questionsCount || 0;
+    const warning = usage > 0
+      ? `Delete "${category.name}"? It will be removed from ${usage} question(s).`
+      : `Delete "${category.name}"?`;
+    if (!confirm(warning)) return;
+
+    this.deletingCategoryId = category.id;
+    this.categoryService.delete(category.id).subscribe({
+      next: () => {
+        this.deletingCategoryId = null;
+        this.categories = this.categories.filter((item) => item.id !== category.id);
+        this.bulkPanelPicked = this.bulkPanelPicked.filter((item) => item.id !== category.id);
+        this.bulkRemoveSelectedIds.delete(category.id);
+        if (this.categoryFilter === category.id || this.tempCategoryFilter === category.id) {
+          this.categoryFilter = 0;
+          this.tempCategoryFilter = 0;
+        }
+        this.loadQuestions();
+        this.toast.show('Category deleted successfully', 'success');
+      },
+      error: (err) => {
+        this.deletingCategoryId = null;
+        this.toast.show(err?.error?.message || 'Failed to delete category', 'error');
+      }
     });
   }
 

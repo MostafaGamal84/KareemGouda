@@ -71,21 +71,20 @@ if (-not $SkipFrontend) {
         Write-Host "      Frontend built successfully" -ForegroundColor Green
         
         # Copy frontend build to wwwroot
+        $browserDist = Join-Path $frontDir 'dist\front\browser'
         $frontDist = Join-Path $frontDir 'dist\front'
-        if (Test-Path $frontDist) {
-            Copy-Item -Path $frontDist -Destination $wwwrootDir -Recurse -Force
+        if (Test-Path $browserDist) {
+            New-Item -ItemType Directory -Path $wwwrootDir -Force | Out-Null
+            Copy-Item -Path (Join-Path $browserDist '*') -Destination $wwwrootDir -Recurse -Force
+            Write-Host "      Frontend (browser) copied to wwwroot" -ForegroundColor Green
+        }
+        elseif (Test-Path $frontDist) {
+            New-Item -ItemType Directory -Path $wwwrootDir -Force | Out-Null
+            Copy-Item -Path (Join-Path $frontDist '*') -Destination $wwwrootDir -Recurse -Force
             Write-Host "      Frontend copied to wwwroot" -ForegroundColor Green
         }
         else {
-            # Try alternative path
-            $altDist = Join-Path $frontDir 'dist\front\browser'
-            if (Test-Path $altDist) {
-                Copy-Item -Path $altDist -Destination $wwwrootDir -Recurse -Force
-                Write-Host "      Frontend (browser) copied to wwwroot" -ForegroundColor Green
-            }
-            else {
-                Write-Host "      Warning: Frontend dist folder not found" -ForegroundColor DarkYellow
-            }
+            Write-Host "      Warning: Frontend dist folder not found" -ForegroundColor DarkYellow
         }
     }
     finally {
