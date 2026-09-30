@@ -7,6 +7,7 @@ public class QuizCreateUpdateDto
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public QuizMode Mode { get; set; }
+    public bool? ShowExplanationAfterEachAnswer { get; set; }
     public int DurationMinutes { get; set; }
     public int? TotalMarks { get; set; }
     public bool IsPublished { get; set; }
@@ -52,6 +53,7 @@ public class QuizResponseDto
     public string? Description { get; set; }
     public string? CoverImageUrl { get; set; }
     public QuizMode Mode { get; set; }
+    public bool ShowExplanationAfterEachAnswer { get; set; }
     public int DurationMinutes { get; set; }
     public int? TotalMarks { get; set; }
     public int EffectiveTotalMarks { get; set; }

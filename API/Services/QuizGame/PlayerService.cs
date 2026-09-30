@@ -344,7 +344,11 @@ public class PlayerService : IPlayerService
             SelectionMode = qq.Question.SelectionMode,
             Difficulty = qq.Question.Difficulty,
             ImageUrl = GetQuestionImageUrl(qq.Question.Id),
-            Explanation = qq.Question.Explanation,
+            Explanation = participant is not null &&
+                await _context.Set<Quiz>().AnyAsync(x => x.Id == session.QuizId && x.ShowExplanationAfterEachAnswer) &&
+                await _context.Set<PlayerAnswer>().AnyAsync(x => x.GameSessionId == sessionId &&
+                    x.ParticipantId == participant.Id && x.QuestionId == qq.QuestionId && !x.IsDeleted)
+                ? qq.Question.Explanation : null,
             Points = qq.PointsOverride ?? qq.Question.Points,
             AnswerSeconds = qq.AnswerSeconds,
             CreatedBy = qq.Question.CreatedBy,
@@ -542,6 +546,7 @@ public class PlayerService : IPlayerService
             CorrectChoiceId = resultsDeferred ? null : correctChoiceId,
             CorrectChoiceIds = resultsDeferred ? new List<int>() : correctChoiceIds,
             ResultsDeferred = resultsDeferred,
+            Explanation = await _context.Set<Quiz>().AnyAsync(x => x.Id == session.QuizId && x.ShowExplanationAfterEachAnswer) ? question.Explanation : null,
             Message = resultsDeferred ? "Answer saved" : "Answer submitted"
         };
     }
@@ -702,6 +707,19 @@ public class PlayerService : IPlayerService
             return null;
         }
 
+        var session = await _context.Set<GameSession>().AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == sessionId && !x.IsDeleted);
+        if (session is null || (session.Status != GameSessionStatus.Ended &&
+            !participant.TestCompletedAt.HasValue &&
+            !(participant.TestEndsAt.HasValue && participant.TestEndsAt.Value <= DateTime.UtcNow)))
+        {
+            return null;
+        }
+
+        var questions = await _context.Set<QuizQuestion>().AsNoTracking()
+            .Where(x => x.QuizId == session.QuizId && !x.IsDeleted && !x.Question.IsDeleted)
+            .OrderBy(x => x.Order).Include(x => x.Question).ToListAsync();
+
         var answers = await _context.Set<PlayerAnswer>()
             .AsNoTracking()
             .Where(x => x.GameSessionId == sessionId && x.ParticipantId == participantId && !x.IsDeleted)
@@ -709,6 +727,16 @@ public class PlayerService : IPlayerService
 
         return new ParticipantResultDto
         {
+            ReviewQuestions = questions.Select((item, index) => new TestResultReviewItemDto
+            {
+                QuestionIndex = index,
+                QuestionId = item.QuestionId,
+                QuestionTitle = item.Question.Title,
+                QuestionText = item.Question.Text,
+                Explanation = item.Question.Explanation,
+                IsAnswered = answers.Any(x => x.QuestionId == item.QuestionId),
+                IsCorrect = answers.Any(x => x.QuestionId == item.QuestionId && x.IsCorrect)
+            }).ToList(),
             ParticipantId = participant.Id,
             DisplayName = participant.DisplayName,
             TotalScore = participant.TotalScore,

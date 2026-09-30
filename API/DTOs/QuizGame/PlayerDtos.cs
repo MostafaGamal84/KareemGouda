@@ -50,6 +50,7 @@ public class SubmitPlayerAnswerDto
 public class PlayerAnswerSubmitResponseDto
 {
     public bool Accepted { get; set; }
+    public string? Explanation { get; set; }
     public bool IsCorrect { get; set; }
     public int? SelectedChoiceId { get; set; }
     public List<int> SelectedChoiceIds { get; set; } = new();
@@ -85,6 +86,7 @@ public class ParticipantJoinStatusDto
 
 public class ParticipantResultDto
 {
+    public List<TestResultReviewItemDto> ReviewQuestions { get; set; } = new();
     public int ParticipantId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public int TotalScore { get; set; }

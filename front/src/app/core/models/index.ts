@@ -86,6 +86,7 @@ export interface Quiz {
   coverImageUrl?: string;
   mode: number;
   durationMinutes: number;
+  showExplanationAfterEachAnswer: boolean;
   totalMarks?: number | null;
   effectiveTotalMarks: number;
   isPublished: boolean;

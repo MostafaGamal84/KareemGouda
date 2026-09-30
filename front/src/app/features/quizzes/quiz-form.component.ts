@@ -80,6 +80,13 @@ import { MultiSelectComponent, MultiSelectOption } from '../../shared/multi-sele
           <h3>Test Settings</h3>
           <div class="form-grid">
             <div class="field">
+              <label for="explanation-timing">Answer explanation</label>
+              <select id="explanation-timing" name="explanationTiming" [(ngModel)]="model.showExplanationAfterEachAnswer">
+                <option [ngValue]="false">After the exam</option>
+                <option [ngValue]="true">After each answer</option>
+              </select>
+            </div>
+            <div class="field">
               <label for="test-duration">Duration (minutes)</label>
               <input id="test-duration" name="testDurationMinutes" type="number" min="0" [(ngModel)]="model.durationMinutes" placeholder="60" />
               <small class="inline-note">0 or empty = no limit</small>
@@ -492,6 +499,7 @@ export class QuizFormComponent implements OnInit {
     title: '',
     description: '',
     durationMinutes: 60,
+    showExplanationAfterEachAnswer: false,
     totalMarks: null,
     isPublished: false,
     examMode: null as number | null,
@@ -520,6 +528,7 @@ export class QuizFormComponent implements OnInit {
         title: res.title,
         description: res.description,
         durationMinutes: res.durationMinutes,
+        showExplanationAfterEachAnswer: res.showExplanationAfterEachAnswer ?? false,
         totalMarks: res.totalMarks ?? null,
         isPublished: !!res.isPublished,
         examMode: res.examMode !== undefined && res.examMode !== null ? Number(res.examMode) : null,
@@ -558,6 +567,7 @@ export class QuizFormComponent implements OnInit {
       description: String(this.model.description || '').trim(),
       totalMarks: this.normalizeOptionalNumber(this.model.totalMarks),
       durationMinutes: this.normalizeNumber(this.model.durationMinutes, 0),
+      showExplanationAfterEachAnswer: this.model.showExplanationAfterEachAnswer,
       categories: this.model.categories
     };
 
@@ -760,6 +770,7 @@ export class QuizFormComponent implements OnInit {
       description: String(this.model.description || '').trim(),
       totalMarks: this.normalizeOptionalNumber(this.model.totalMarks),
       durationMinutes: this.normalizeNumber(this.model.durationMinutes, 0),
+      showExplanationAfterEachAnswer: this.model.showExplanationAfterEachAnswer,
       categories: this.model.categories
     };
 
@@ -804,6 +815,7 @@ export class QuizFormComponent implements OnInit {
       description: String(this.model.description || '').trim(),
       totalMarks: this.normalizeOptionalNumber(this.model.totalMarks),
       durationMinutes: this.normalizeNumber(this.model.durationMinutes, 0),
+      showExplanationAfterEachAnswer: this.model.showExplanationAfterEachAnswer,
       categories: this.model.categories
     };
 
@@ -875,6 +887,7 @@ export class QuizFormComponent implements OnInit {
       description: String(this.model.description || '').trim(),
       totalMarks: this.normalizeOptionalNumber(this.model.totalMarks),
       durationMinutes: this.normalizeNumber(this.model.durationMinutes, 0),
+      showExplanationAfterEachAnswer: this.model.showExplanationAfterEachAnswer,
       categories: this.model.categories
     };
 
@@ -947,6 +960,7 @@ export class QuizFormComponent implements OnInit {
       description: String(this.model.description || '').trim(),
       totalMarks: this.normalizeOptionalNumber(this.model.totalMarks),
       durationMinutes: this.normalizeNumber(this.model.durationMinutes, 0),
+      showExplanationAfterEachAnswer: this.model.showExplanationAfterEachAnswer,
       categories: this.model.categories
     };
 

@@ -131,6 +131,7 @@ public class TestModeService : ITestModeService
             QuizTitle = attempt.Quiz.Title,
             IsFinished = attempt.IsFinished,
             DurationMinutes = attempt.Quiz.DurationMinutes,
+            ShowExplanationAfterEachAnswer = attempt.Quiz.ShowExplanationAfterEachAnswer,
             CurrentQuestionIndex = currentIndex,
             TotalQuestions = totalQuestions,
             AnsweredQuestions = answeredSet.Count,
@@ -188,7 +189,8 @@ public class TestModeService : ITestModeService
                 quizQuestion,
                 answersLookup.TryGetValue(quizQuestion.QuestionId, out var answer) ? answer : null,
                 index,
-                orderedQuestions.Count))
+                orderedQuestions.Count,
+                attempt.Quiz.ShowExplanationAfterEachAnswer))
             .ToList();
     }
 
@@ -240,7 +242,7 @@ public class TestModeService : ITestModeService
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.QuizAttemptId == attemptId && x.QuestionId == quizQuestion.QuestionId && !x.IsDeleted);
 
-        return MapTestQuestion(attempt.IsFinished, quizQuestion, answer, resolvedIndex.Value, orderedQuestions.Count);
+        return MapTestQuestion(attempt.IsFinished, quizQuestion, answer, resolvedIndex.Value, orderedQuestions.Count, attempt.Quiz.ShowExplanationAfterEachAnswer);
     }
 
     public async Task<TestAnswerSubmitResponseDto> SubmitAnswerAsync(int attemptId, int userId, SubmitTestAnswerDto dto, bool canAccessAll)
@@ -332,6 +334,7 @@ public class TestModeService : ITestModeService
         return new TestAnswerSubmitResponseDto
         {
             Accepted = true,
+            Explanation = attempt.Quiz.ShowExplanationAfterEachAnswer ? question.Explanation : null,
             IsCorrect = null,
             SelectedChoiceId = normalizedChoiceIds.Count == 1 ? normalizedChoiceIds[0] : null,
             SelectedChoiceIds = normalizedChoiceIds,
@@ -621,6 +624,7 @@ public class TestModeService : ITestModeService
     private IQueryable<QuizAttempt> AccessibleAttempts(int userId, bool canAccessAll)
     {
         return _context.Set<QuizAttempt>()
+            .Include(x => x.Quiz)
             .Where(x => !x.IsDeleted && (canAccessAll || x.UserId == userId));
     }
 
@@ -672,7 +676,7 @@ public class TestModeService : ITestModeService
             : "Selected answer is invalid for this question.";
     }
 
-    private static TestModeQuestionDto MapTestQuestion(bool isAttemptFinished, QuizQuestion quizQuestion, QuizAttemptAnswer? answer, int questionIndex, int totalQuestions)
+    private static TestModeQuestionDto MapTestQuestion(bool isAttemptFinished, QuizQuestion quizQuestion, QuizAttemptAnswer? answer, int questionIndex, int totalQuestions, bool showExplanationAfterEachAnswer)
     {
         var question = quizQuestion.Question;
         var categories = question.QuestionCategoryAssignments
@@ -718,7 +722,7 @@ public class TestModeService : ITestModeService
                 SelectionMode = question.SelectionMode,
                 Difficulty = question.Difficulty,
                 ImageUrl = GetQuestionImageUrl(question.Id),
-                Explanation = question.Explanation,
+                Explanation = isAttemptFinished || (showExplanationAfterEachAnswer && answer is not null) ? question.Explanation : null,
                 Points = quizQuestion.PointsOverride ?? question.Points,
                 AnswerSeconds = quizQuestion.AnswerSeconds > 0 ? quizQuestion.AnswerSeconds : question.AnswerSeconds,
                 CreatedBy = question.CreatedBy,

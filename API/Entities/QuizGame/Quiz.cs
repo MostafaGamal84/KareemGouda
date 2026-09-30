@@ -7,6 +7,7 @@ public class Quiz : BaseEntity
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public QuizMode Mode { get; set; }
+    public bool ShowExplanationAfterEachAnswer { get; set; }
     public int DurationMinutes { get; set; }
     public bool IsPublished { get; set; }
     public int MaxAttempts { get; set; } = 1;

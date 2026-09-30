@@ -683,7 +683,7 @@ public class GameSessionService : IGameSessionService
             SelectionMode = qq.Question.SelectionMode,
             Difficulty = qq.Question.Difficulty,
             ImageUrl = GetQuestionImageUrl(qq.Question.Id),
-            Explanation = qq.Question.Explanation,
+            Explanation = null,
             Points = qq.PointsOverride ?? qq.Question.Points,
             AnswerSeconds = qq.AnswerSeconds,
             CreatedBy = qq.Question.CreatedBy,

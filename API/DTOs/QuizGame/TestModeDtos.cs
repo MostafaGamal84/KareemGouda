@@ -43,6 +43,7 @@ public class TestAttemptOverviewDto
     public int QuizId { get; set; }
     public string QuizTitle { get; set; } = string.Empty;
     public bool IsFinished { get; set; }
+    public bool ShowExplanationAfterEachAnswer { get; set; }
     public int DurationMinutes { get; set; }
     public int CurrentQuestionIndex { get; set; }
     public int TotalQuestions { get; set; }
@@ -70,6 +71,7 @@ public class TestModeQuestionDto
 public class TestAnswerSubmitResponseDto
 {
     public bool Accepted { get; set; }
+    public string? Explanation { get; set; }
     public bool? IsCorrect { get; set; }
     public int? SelectedChoiceId { get; set; }
     public List<int> SelectedChoiceIds { get; set; } = new();

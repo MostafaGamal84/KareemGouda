@@ -34,6 +34,7 @@ public class QuizService : IQuizService
             Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
             Mode = dto.Mode,
             DurationMinutes = NormalizeDurationMinutes(dto.DurationMinutes),
+            ShowExplanationAfterEachAnswer = dto.ShowExplanationAfterEachAnswer ?? false,
             TotalMarks = NormalizeTotalMarks(dto.TotalMarks),
             IsPublished = dto.IsPublished,
             CreatedBy = userId,
@@ -66,6 +67,7 @@ public class QuizService : IQuizService
         quiz.Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim();
         quiz.Mode = dto.Mode;
         quiz.DurationMinutes = NormalizeDurationMinutes(dto.DurationMinutes);
+        quiz.ShowExplanationAfterEachAnswer = dto.ShowExplanationAfterEachAnswer ?? quiz.ShowExplanationAfterEachAnswer;
         quiz.TotalMarks = NormalizeTotalMarks(dto.TotalMarks);
         quiz.IsPublished = dto.IsPublished;
 
@@ -365,6 +367,7 @@ public class QuizService : IQuizService
             Description = originalQuiz.Description,
             Mode = originalQuiz.Mode,
             DurationMinutes = originalQuiz.DurationMinutes,
+            ShowExplanationAfterEachAnswer = originalQuiz.ShowExplanationAfterEachAnswer,
             TotalMarks = originalQuiz.TotalMarks,
             IsPublished = false,
             CreatedBy = userId,
@@ -584,6 +587,7 @@ public class QuizService : IQuizService
             CoverImageUrl = GetImageUrl(quiz.Id, "quizzes", "quiz"),
             Mode = quiz.Mode,
             DurationMinutes = quiz.DurationMinutes,
+            ShowExplanationAfterEachAnswer = quiz.ShowExplanationAfterEachAnswer,
             TotalMarks = quiz.TotalMarks,
             EffectiveTotalMarks = ComputeEffectiveTotalMarks(quiz),
             IsPublished = quiz.IsPublished,
@@ -620,6 +624,7 @@ public class QuizService : IQuizService
             CoverImageUrl = GetImageUrl(quiz.Id, "quizzes", "quiz"),
             Mode = quiz.Mode,
             DurationMinutes = quiz.DurationMinutes,
+            ShowExplanationAfterEachAnswer = quiz.ShowExplanationAfterEachAnswer,
             TotalMarks = quiz.TotalMarks,
             EffectiveTotalMarks = ComputeEffectiveTotalMarks(quiz),
             IsPublished = quiz.IsPublished,

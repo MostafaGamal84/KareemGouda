@@ -169,9 +169,9 @@ import { SafeRichTextPipe } from '../../shared/safe-rich-text.pipe';
                 </div>
               }
 
-              @if (!isTimedTestFlow() && (submitted || isRevealPhase) && question.explanation) {
+              @if (question.explanation) {
                 <div class="voice-status voice-status-live">
-                  <span>{{ question.explanation }}</span>
+                  <div><strong>Answer explanation</strong><div class="rich-text-content" style="white-space: pre-wrap" [innerHTML]="question.explanation"></div></div>
                 </div>
               }
             } @else {
@@ -984,6 +984,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
           return;
         }
 
+        this.question.explanation = res?.explanation ?? res?.Explanation ?? null;
         const resultsDeferred = Boolean(res?.resultsDeferred ?? res?.ResultsDeferred ?? false);
         this.submitted = !resultsDeferred;
         if (resultsDeferred) {
@@ -1389,6 +1390,7 @@ export class PlayerLiveQuestionComponent implements OnInit, OnDestroy {
       }
       this.question = {
         ...currentQuestion,
+        explanation: questionChanged ? null : this.question?.explanation,
         imageUrl: this.resolveAssetUrl(currentQuestion?.imageUrl ?? currentQuestion?.ImageUrl ?? ''),
         choices: Array.isArray(currentQuestion?.choices ?? currentQuestion?.Choices)
           ? (currentQuestion?.choices ?? currentQuestion?.Choices).map((choice: any) => ({

@@ -582,6 +582,9 @@ namespace API.Migrations
                     b.Property<bool>("IsPublished")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("ShowExplanationAfterEachAnswer")
+                        .HasColumnType("bit");
+
                     b.Property<int>("MaxAttempts")
                         .HasColumnType("int");
 

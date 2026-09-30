@@ -166,6 +166,18 @@ import { environment } from '../../../environments/environment';
                   </div>
                 }
 
+                @if (overview.showExplanationAfterEachAnswer) {
+                  <button (click)="saveAnswerForExplanation()" [disabled]="isSubmitting || isFinishing || !hasCurrentAnswer()">
+                    {{ isSubmitting ? 'Saving...' : 'Save answer and show explanation' }}
+                  </button>
+                }
+                @if (questionData.question.explanation) {
+                  <div class="saved-hint" aria-live="polite">
+                    <strong>Answer explanation</strong>
+                    <div class="rich-text-content" style="white-space: pre-wrap" [innerHTML]="questionData.question.explanation"></div>
+                  </div>
+                }
+
                 <div class="attempt-actions two-actions">
                   <button
                     class="secondary"
@@ -275,7 +287,7 @@ import { environment } from '../../../environments/environment';
                     @if (item.explanation) {
                       <div class="review-answer review-answer-correct">
                         <span>Explanation</span>
-                        <strong>{{ item.explanation }}</strong>
+                        <div class="rich-text-content" style="white-space: pre-wrap" [innerHTML]="item.explanation"></div>
                       </div>
                     }
                   </article>
@@ -879,6 +891,37 @@ export class TestModeAttemptComponent implements OnInit, OnDestroy {
 
     this.markSkippedQuestionsBeforeMove(this.currentQuestionIndex - 1);
     this.moveWithAutoSave(() => this.setCurrentQuestion(this.currentQuestionIndex - 1));
+  }
+
+  hasCurrentAnswer(): boolean {
+    return this.currentEditorHasAnswer();
+  }
+
+  saveAnswerForExplanation(): void {
+    if (this.isSubmitting || this.isFinishing || !this.currentEditorHasAnswer()) return;
+    this.persistDraft();
+    const question = this.questionData.question;
+    this.isSubmitting = true;
+    this.error = '';
+    this.service.submitAnswer(this.attemptId, {
+      questionId: question.id,
+      selectedChoiceId: this.selectedChoiceIds.length === 1 ? this.selectedChoiceIds[0] : null,
+      selectedChoiceIds: this.selectedChoiceIds,
+      textAnswer: question.type === 3 ? this.textAnswer : null
+    }).subscribe({
+      next: (res) => {
+        this.isSubmitting = false;
+        if (!res?.accepted) {
+          this.error = res?.message || 'Failed to save answer';
+          return;
+        }
+        question.explanation = res.explanation;
+      },
+      error: (err) => {
+        this.isSubmitting = false;
+        this.error = err?.error?.message || 'Failed to save answer';
+      }
+    });
   }
 
   goNext(): void {

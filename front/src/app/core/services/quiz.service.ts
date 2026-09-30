@@ -140,6 +140,7 @@ export class QuizService {
       coverImageUrl: this.resolveAssetUrl(item?.coverImageUrl ?? item?.CoverImageUrl ?? ''),
       mode: Number(item?.mode ?? item?.Mode ?? 0),
       durationMinutes: Number(item?.durationMinutes ?? item?.DurationMinutes ?? 0),
+      showExplanationAfterEachAnswer: Boolean(item?.showExplanationAfterEachAnswer ?? item?.ShowExplanationAfterEachAnswer ?? false),
       totalMarks: this.toNullableNumber(item?.totalMarks ?? item?.TotalMarks),
       effectiveTotalMarks: Number(item?.effectiveTotalMarks ?? item?.EffectiveTotalMarks ?? 0),
       isPublished: Boolean(item?.isPublished ?? item?.IsPublished ?? false),
